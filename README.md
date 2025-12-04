@@ -24,7 +24,7 @@ A **synchronous web crawler** built with Playwright, designed to fetch e-commerc
 - After having downloaded the HTML webpages with the crawler, the parser "text.py" reads them, extracts product information (title, price, currency) and inserts each product into the SQLite database.
 - To export results to JSON or CSV, run export_utils.py.
 
---
+---
 
 ## Result examples
 
