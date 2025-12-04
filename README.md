@@ -22,25 +22,25 @@ A **synchronous web crawler** built with Playwright, designed to fetch e-commerc
 
 ## URLs table
 
-![DB URLs Screenshot](images/URLs.JPG)
+![DB URLs Screenshot](images/URLs.jpg)
 
 *Shows the contents of the Urls table, where each discovered page is stored along with timestamps and filenames of its html file*.
 
 ## Example: Products table
 
-![DB products Screenshot](images/Products.JPG)
+![DB products Screenshot](images/Products.jpg)
 
 *Displays the Products table built from exracting product-info (title, currency, and price) from scraped htmls*.
 
 ## Examples: JSON export file
 
-![JSON export Screenshot](images/JSON.JPG)
+![JSON export Screenshot](images/JSON.jpg)
 
 *Shows an example of the JSON export. The file contains structured records for products correlated to their corresponding URLs*.
 
 ## Examples: CSV export file
 
-![CSV export Screenshot](images/CSV.JPG)
+![CSV export Screenshot](images/CSV.jpg)
 
 *Shows the CSV export file generated from the SQLite database. Each row represents a crawled product with its scraped data.*
 
