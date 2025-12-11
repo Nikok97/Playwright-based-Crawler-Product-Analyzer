@@ -2,8 +2,6 @@
 
 A **synchronous web crawler** built with Playwright, designed to fetch e-commerce search result pages, store them locally as HTML, and extract structured product information into a SQLite database.
 
-**Note:** in this version of the program, the code is designed to fetch Amazon's search results webpages.
-
 ---
 
 ## Features
@@ -15,6 +13,7 @@ A **synchronous web crawler** built with Playwright, designed to fetch e-commerc
 - **Stealth browser context:** spoofed languages, headers, viewport, user agent.
 - **Product insertion module:** parses saved HTML, extracts product names/prices/currency and stores data in persistent database.
 - **Export program included** to export SQLite database to JSON or CSV.
+- **Generic code and specific site integration**: The program accepts different E-commerce sites, encapsulated in adequate classes.
 
 ---
 
