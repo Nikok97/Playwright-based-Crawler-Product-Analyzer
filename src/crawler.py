@@ -6,7 +6,7 @@ from playwright.sync_api import sync_playwright
 from stealth import stealth_context, human_scroll
 from db import db_initialization, insert_url, now, update_url_date, update_filename_for_url
 from utils import setup_loggers, setup_directories
-from specific_sites import AmazonConfig
+from specific_sites import MercadoLibreConfig, AmazonConfig
 
 #Config setup and directories
 BASE_DIR, CURRENT_DIR, PARENT_DIR, DATA_DIR = setup_directories()
@@ -21,7 +21,7 @@ with open(config_path) as f:
     end_position = config["end_position"]
 
 #Specific site config
-specific_site_config = AmazonConfig()
+specific_site_config = MercadoLibreConfig()
 seed_url = specific_site_config.seed_urls[0]
 
 #DB setup
@@ -56,7 +56,7 @@ with sync_playwright() as p:
 
         try:
             page.goto(list_of_urls[i], timeout=30000)
-            page.wait_for_selector(specific_site_config.product_price_selector, timeout=8000)
+            page.wait_for_selector(specific_site_config.selector_to_start_process, timeout=8000)
             print(f'Target JavaScript selector detected in URL: {list_of_urls[i]}')
         except Exception as e:
             logger.info(f"Retrying {list_of_urls[i]}: {e}")
@@ -66,7 +66,7 @@ with sync_playwright() as p:
         try:
             time.sleep(random.uniform(11, 14))
             page.reload(timeout=30000)
-            page.wait_for_selector(specific_site_config.product_price_selector, timeout=8000)
+            page.wait_for_selector(specific_site_config.selector_to_start_process, timeout=8000)
         except Exception as e:
             error_logger.warning(f"Second failure on {list_of_urls[i]}: {e}")
             continue
@@ -115,7 +115,7 @@ with sync_playwright() as p:
             page_counter += 1
 
             print("Now waiting...")
-            time.sleep(random.uniform(30, 50))
+            time.sleep(random.uniform(30, 55))
 
         except Exception as e:
             error_logger.warning(f"Unknown error for {list_of_urls[i]}: {e}")
