@@ -3,7 +3,7 @@ import os
 import json
 from db import db_initialization, insert_product, get_url_and_id_using_filename
 from utils import setup_loggers, setup_directories
-from classes_specific_sites import AmazonConfig, MercadoLibreConfig
+from specific_sites import AmazonConfig, MercadoLibreConfig
 
 #Specific sit config
 specific_site_config = MercadoLibreConfig()
