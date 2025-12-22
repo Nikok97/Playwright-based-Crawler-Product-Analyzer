@@ -26,7 +26,7 @@ A **synchronous web crawler** built with Playwright, designed to fetch e-commerc
 - **Crawler_text module:** After having downloaded the HTML webpages with the crawler, *Crawler_text* reads them, extracts product information (title, price, currency) and inserts each product into the SQLite database.
 - **Crawler_export:** exports results stored in DB to a JSON or CSV file.
 
---
+---
 
 ## Result examples
 
