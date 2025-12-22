@@ -89,25 +89,25 @@ A **synchronous web crawler** built with Playwright, designed to fetch e-commerc
 
 - Crawler usage example:
 
-- STEP 1:
+- **STEP 1**:
 
 ```Configure config.json values```.
 
 (Check *specific_sites.py* for desired site name.)
 
-- STEP 2:
+- **STEP 2:**
 
 ```python crawler_seed.py```
 
-- STEP 3:
+- **STEP 3:**
 
 ```python crawler_main.py```
 
-- STEP 4:
+- **STEP 4:**
 
 ```python crawler_text.py```
 
-- (Optional) STEP 5:
+- (Optional) **STEP 5:**
 
 4. Export results to JSON (or CSV):
 
