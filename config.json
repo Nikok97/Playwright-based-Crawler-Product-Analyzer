@@ -1,6 +1,5 @@
 {
-  "seed_url": "https://www.amazon.com/s?k=laptop",
+  "site": "amazon",
   "database_path": "mini.sqlite",
-  "start_position": 1,
-  "end_position": 11
+  "end_position": 3
 }
