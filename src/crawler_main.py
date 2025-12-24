@@ -2,7 +2,7 @@ import json
 import time, random
 import os
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from stealth import stealth_context, human_scroll
 from db import db_initialization, now, update_url_date, update_filename_for_url, update_url_status, get_and_update_pending_url
 from utils import setup_loggers, setup_directories, countdown_sleep_timer
@@ -47,7 +47,6 @@ with sync_playwright() as p:
         while True:
 
             try:
-                
                 #Query the db, get one url, starting from the top, and mark them as in_progress
                 url_id, url = get_and_update_pending_url(db)
 
@@ -60,9 +59,11 @@ with sync_playwright() as p:
             
                 #Occasional long pause to simulate natural browsing
                 if (page_counter % 5 == 0) and (page_counter != 0):
-                    time.sleep(random.uniform(50, 90))
+                    special_wait_time = random.uniform(50, 90)
+                    countdown_sleep_timer(special_wait_time)
 
                 #Navigation block
+                #1st try
                 try:
                     page.goto(url, timeout=30000)
                     page.wait_for_selector(specific_site_config.selector_to_start_process, timeout=8000)
@@ -71,8 +72,14 @@ with sync_playwright() as p:
                     loaded = True
                     logger.info(f"URL: {url} succesfully loaded")
 
-                except Exception as e:
-                    logger.info(f"First failure on {url}: {e}")
+                except PlaywrightTimeoutError as e:
+                    logger.warning(f"Timeout while loading {url}")
+                    time.sleep(random.uniform(15, 25))
+                except Exception:
+                    error_logger.error(
+                        f"Unexpected navigation error on {url}",
+                        exc_info=True
+                    )
                     time.sleep(random.uniform(15, 25))
 
                 #Second try
@@ -84,9 +91,13 @@ with sync_playwright() as p:
 
                         loaded = True
                         logger.info(f"URL: {url} succesfully loaded")
-                        
+                    
+                    except PlaywrightTimeoutError:
+                        error_logger.warning(f"Reload timeout on {url}")
+                        update_url_status(url, db, status="failed")
+                        continue
                     except Exception as e:
-                        error_logger.warning(f"Second failure on {url}: {e}")
+                        error_logger.error(f"Second failure on {url}: {e}", exc_info=True)
                         update_url_status(url, db, status='failed')
                         continue
                 
@@ -94,9 +105,16 @@ with sync_playwright() as p:
                 try:
                     print(f"{page_counter}. Scrolling for {url}")
                     human_scroll(page, min_increment=200, max_increment=450,  timeout=15.0)
-                except Exception as e:
-                    error_logger.warning(f"Scrolling error on {url}: {e}")
-                    update_url_status(url, db, status='failed')
+                except PlaywrightTimeoutError:
+                    error_logger.warning(f"Scroll timeout on {url}")
+                    update_url_status(url, db, status="failed")
+                    continue
+                except Exception:
+                    error_logger.error(
+                        f"Unexpected scroll error on {url}",
+                        exc_info=True
+                    )
+                    update_url_status(url, db, status="failed")
                     continue
                            
                 #Extra delay to let JS finish loading
@@ -107,9 +125,11 @@ with sync_playwright() as p:
                 try:
                     html = page.content()
                     logger.info(f"Fetched HTML content for {url}")
-                except Exception as e:
-                    error_logger.warning(f"HTML fetching error for {url}: {e}")
-                    update_url_status(url, db, status='failed')
+                except Exception:
+                    error_logger.error(
+                        f"HTML fetching error for {url}",
+                        exc_info=True)
+                    update_url_status(url, db, status="failed")
                     continue
 
                 #File path setup
@@ -135,7 +155,7 @@ with sync_playwright() as p:
                     if tmp_path and os.path.exists(tmp_path):
                         os.remove(tmp_path)
                     update_url_status(url, db, status="failed")
-                    error_logger.warning(f"Unknown DB error for {url}: {e}")
+                    error_logger.error(f"DB or filesystem error while processing {url}", exc_info=True)
 
                 wait_time = random.uniform(30, 55)
                 countdown_sleep_timer(wait_time)

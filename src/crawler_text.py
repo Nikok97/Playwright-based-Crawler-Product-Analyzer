@@ -62,7 +62,7 @@ for file in os.listdir(DATA_DIR):
                     counter_of_products_per_page += 1
 
         except Exception as e:
-            error_logger.warning(f"Parsing failed for {file}: {e}")
+            error_logger.error(f"Parsing failed for {file}: {e}")
 
 db["conn"].close()
 

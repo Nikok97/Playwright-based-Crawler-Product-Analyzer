@@ -9,28 +9,47 @@ def setup_loggers():
     """
     Sets up a general logger and an error logger, with corresponding handlers and levels.
     """
-
     import logging 
-    # General logger
-    logging.basicConfig(
-        filename='crawler.log',
-        filemode='a',
-        format='%(asctime)s %(levelname)s: %(message)s',
-        level=logging.INFO
-    )
 
-    # Error logger
+    # Get the root logger (used by logging.info, logging.warning, etc.)
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # Add a file handler only if one does not already exist
+    if not logger.handlers:
+        handler = logging.FileHandler('crawler.log')
+
+        # Define the log format
+        formatter = logging.Formatter(
+            '%(asctime)s %(levelname)s: %(message)s'
+        )
+        handler.setFormatter(formatter)
+
+        #Attach the handler to the root logger
+        logger.addHandler(handler)
+
+    # Create / get a named logger dedicated to errors
     error_logger = logging.getLogger('error_logger')
-    error_handler = logging.FileHandler('crawler_errors.log')
-    error_handler.setLevel(logging.ERROR)
     error_logger.setLevel(logging.ERROR)
-    error_formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
-    error_handler.setFormatter(error_formatter)
-    error_logger.addHandler(error_handler)
+
+    # Prevent error logs from propagating to the root logger
     error_logger.propagate = False
 
-    # Return for use
-    logger = logging.getLogger() 
+    # Add an error file handler only once
+    if not error_logger.handlers:
+        error_handler = logging.FileHandler('crawler_errors.log')
+        error_handler.setLevel(logging.ERROR)
+
+        # Reuse the same formatting style for consistency
+        error_formatter = logging.Formatter(
+            '%(asctime)s %(levelname)s: %(message)s'
+        )
+        error_handler.setFormatter(error_formatter)
+
+        # Attach the handler to the error logger
+        error_logger.addHandler(error_handler)
+
+    # Return both loggers for use
     return logger, error_logger
 
 QUERY_EXPORT = '''
