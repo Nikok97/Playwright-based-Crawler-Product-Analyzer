@@ -1,3 +1,11 @@
+import time, random
+import os
+
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from stealth import human_scroll
+from db import now, update_url_date, update_filename_for_url, update_url_status
+
+
 #Def Now
 def now():
     """Return the actual date, hour and timezone."""
@@ -9,8 +17,7 @@ def setup_loggers():
     """
     Sets up a general logger and an error logger, with corresponding handlers and levels.
     """
-    import logging 
-
+    import logging
     # Get the root logger (used by logging.info, logging.warning, etc.)
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
@@ -166,6 +173,132 @@ def countdown_sleep_timer(waiting_time):
         remaining -= 1
     print() # move to clean line
     print("Waiting… done.            ")
+
+#Logging setup
+logger, error_logger = setup_loggers()
+
+def load_page(page, url, specific_site_config, max_attempts=2) -> bool:
+    """
+    Tries to load the URL and waits for the required selector.
+    Returns True if the page is ready for processing.
+    """
+    #Navigation block
+    success = False
+    for attempt in range(1, max_attempts + 1):
+        try:
+            #1st try
+            if attempt == 1:
+                page.goto(url, timeout=30000)
+            #2nd (or n) retries
+            else:
+                time.sleep(random.uniform(15, 25))
+                page.reload(timeout=30000)
+            #Page loaded, wait for selector
+            page.wait_for_selector(specific_site_config.selector_to_start_process, timeout=8000)
+            success = True
+            logger.info(f"URL: {url} succesfully loaded on attempt {attempt}")
+            break
+        except PlaywrightTimeoutError:
+            error_logger.warning(f"Load timeout on {url} on attempt {attempt}")
+            continue
+        except Exception:
+            error_logger.error(f"Navigation failure on {url} on attempt {attempt}", exc_info=True)
+            continue
+    #Final check
+    if success:
+        return True 
+    else:
+        return False
+    
+def perform_scroll(page, url) -> bool:
+    """
+    Scrolls the page to trigger JS loading.
+    Returns False if scrolling fails or times out.
+    """
+    try:
+        human_scroll(page, min_increment=200, max_increment=450,  timeout=15.0)
+        print(f"Scrolling for {url}")
+        return True
+    except PlaywrightTimeoutError:
+        error_logger.warning(f"Scroll timeout on {url}")
+        return False
+    except Exception:
+        error_logger.error(
+            f"Unexpected scroll error on {url}",
+            exc_info=True
+        )
+        return False
+    
+def extract_html(page, url) -> str | None:
+    """
+    Returns page HTML or None if extraction fails.
+    """
+    #Fetch HTML
+    logger.info(f"Fetching HTML for: {url}")
+    try:
+        html = page.content()
+        logger.info(f"Fetched HTML content for {url}")
+        return html
+    except Exception:
+        error_logger.error(
+            f"HTML fetching error for {url}",
+            exc_info=True)
+        return None
+     
+def write_html(url_id, html, tmp_path) -> bool:
+    """
+    Writes HTML.
+    """
+    #HTML writing
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(html)
+            return True
+    except Exception:
+        error_logger.error(
+            f"HTML writing error for {url_id}",
+            exc_info=True)
+        return False
+
+    
+def persist_result_in_db(db, url, url_id, html, DATA_DIR):
+    """
+    Atomically saves HTML and updates DB metadata.
+    Raises on failure.
+    """
+    #File path setup
+    try:
+        filename = f"page{url_id}.html"
+        output_path = os.path.join(DATA_DIR, filename)
+        tmp_path = output_path + ".tmp"
+    except Exception:
+        error_logger.error(
+            f"HTML pathing error for {url_id}",
+            exc_info=True)
+        raise
+    #HTML writing
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(html)
+    except Exception:
+        error_logger.error(
+            f"HTML writing error for {url_id}",
+            exc_info=True)
+        raise
+    #Insert link to DB
+    try:
+        date = str(now())
+        update_url_date(url, db, date)
+        update_filename_for_url(url, db, filename)
+        update_url_status(url, db, status="fetched")
+        os.replace(tmp_path, output_path)
+    except Exception:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        error_logger.error(f"DB or filesystem error while processing {url}", exc_info=True)
+        raise
+
+
 
 
 

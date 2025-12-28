@@ -7,11 +7,24 @@ from utils import setup_loggers
 logger, error_logger = setup_loggers()
 
 def site_registry():
+    """
+    Dictionary object containing the specific configuration classes for each site.
+    """
     SITE_REGISTRY = {
         "amazon": AmazonConfig,
         "mercadolibre": MercadoLibreConfig,
     }
     return SITE_REGISTRY
+
+def specific_site_setup(SITE_REGISTRY: dict, site_name: str) -> tuple:
+    """
+    Loads the site name, seed_url and specific config of a site from the registry by reference of its name.
+    """
+    if site_name not in SITE_REGISTRY:
+        raise ValueError(f"Unsupported site: {site_name}")
+    specific_site_config = SITE_REGISTRY[site_name]()
+    seed_url = specific_site_config.seed_urls[0]
+    return specific_site_config, seed_url
 
 class AmazonConfig:
     """
@@ -191,8 +204,8 @@ class MercadoLibreConfig:
                 try:
                     page.goto(seed_url, timeout=30000)
                     loaded = True
-                except Exception as e:
-                    logger.info(f"First failure on {seed_url}: {e}")
+                except Exception:
+                    error_logger.warning(f"First failure on {seed_url}", exc_info=True)
                     time.sleep(random.uniform(15, 25))
 
                 #Second try
@@ -202,8 +215,8 @@ class MercadoLibreConfig:
                         page.reload(timeout=30000)
                         loaded = True
                         logger.info(f"URL: {seed_url} succesfully loaded")
-                    except Exception as e:
-                        error_logger.warning(f"Second failure on {seed_url}: {e}") 
+                    except Exception:
+                        error_logger.warning(f"Second failure on {seed_url}", exc_info=True) 
                         return None  
                 
                 #If page loaded, proceed and scroll
@@ -211,8 +224,8 @@ class MercadoLibreConfig:
                     try:
                         print(f"Scrolling for {seed_url}")
                         human_scroll(page, min_increment=200, max_increment=450,  timeout=15.0)
-                    except Exception as e:
-                        error_logger.warning(f"Scrolling error on {seed_url}: {e}")
+                    except Exception:
+                        error_logger.error(f"Scrolling error on {seed_url}", exc_info=True)
 
                 # Go to the end
                 page.locator("body").press("End")

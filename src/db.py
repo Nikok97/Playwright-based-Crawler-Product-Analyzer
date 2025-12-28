@@ -149,8 +149,19 @@ def already_fetched_checker(url, db):
     else:
         return False
 
-def update_url_status(url, db, status: str):
+def update_url_status(url, db: dict, status: str):
     """Sets the crawling status of a URL: pending / fetched / failed."""
+    db["cur"].execute(
+        'UPDATE Urls SET status = ? WHERE name = ?',
+        (status, url)
+    )
+    db["conn"].commit()
+
+def mark_url_as_failed(db, url):
+    """
+    Mark URL as failed.
+    """
+    status = 'failed'
     db["cur"].execute(
         'UPDATE Urls SET status = ? WHERE name = ?',
         (status, url)

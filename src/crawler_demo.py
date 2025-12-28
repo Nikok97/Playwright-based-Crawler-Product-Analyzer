@@ -110,16 +110,18 @@ with sync_playwright() as p:
                     update_filename_for_url(list_of_urls[i], db, filename)
                     print(f"6. Filename updated for URL: {list_of_urls[i]}")
 
-                except Exception as e:
-                    error_logger.warning(f"Unknown DB error for {list_of_urls[i]}: {e}")
+                except Exception:
+                    error_logger.error(f"Unknown DB error for {list_of_urls[i]}",
+                                       exc_info=True)
             
             page_counter += 1
 
             print("Now waiting...")
             time.sleep(random.uniform(1, 1.5))
 
-        except Exception as e:
-            error_logger.warning(f"Unknown error for {list_of_urls[i]}: {e}")
+        except Exception:
+            error_logger.error(f"Unknown error for {list_of_urls[i]}",
+                               exc_info=True)
             
     #Close the browser 
     browser.close()
