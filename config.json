@@ -1,5 +1,5 @@
 {
-  "site": "amazon",
+  "site": "mercadolibre",
   "database_path": "mini.sqlite",
-  "end_position": 3
+  "pages_to_crawl": 1
 }
