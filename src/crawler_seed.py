@@ -1,15 +1,14 @@
 import json
-import os
 
 from db import db_initialization, insert_url, now, already_fetched_checker, update_url_status
-from utils import setup_loggers, setup_directories
+from utils import setup_loggers, setup_directories_pathlib
 from specific_sites import site_registry, specific_site_setup
 
-#Config setup and directories
-BASE_DIR, CURRENT_DIR, PARENT_DIR, DATA_DIR = setup_directories()
+#Config directories
+paths_dict = setup_directories_pathlib()
 
 #Load config
-config_path = os.path.join(BASE_DIR, "config.json")
+config_path = paths_dict["base_dir"] / "config.json"
 with open(config_path) as f:
     config = json.load(f)
     config_db_path = config.get("database_path", "mini.sqlite") 
@@ -24,11 +23,12 @@ specific_site_config, seed_url = specific_site_setup(SITE_REGISTRY, site_name)
 logger, error_logger = setup_loggers()
 
 #DB setup
-db_path = os.path.join(DATA_DIR, config_db_path)
+db_path = paths_dict["data_dir"] / config_db_path
 db = db_initialization(db_path)
 
 #Pagination
 pagination_mode = specific_site_config.pagination_mode
+
 ##If pagination is read from config as dynamic:
 if pagination_mode == "dynamic":
     try:
@@ -41,7 +41,7 @@ if pagination_mode == "dynamic":
         raise RuntimeError(
             f"[{site_name}] Cannot determine canonical pagination base. Aborting."
         ) from e
-##If it is read as static:
+##If it is static:
 else:
     canonical_url = seed_url
 

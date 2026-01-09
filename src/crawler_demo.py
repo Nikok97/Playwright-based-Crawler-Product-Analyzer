@@ -1,27 +1,27 @@
 import json
 import time, random
-import os
 
 from playwright.sync_api import sync_playwright
 from stealth import stealth_context, human_scroll
 from db import db_initialization, insert_url, now, update_url_date, update_filename_for_url
-from utils import setup_loggers, setup_directories
+from utils import setup_loggers, setup_directories_pathlib
 
 print("Playwright Dynamic Crawler - Demo Test")
 
-#Config setup and directories
-BASE_DIR, CURRENT_DIR, PARENT_DIR, DATA_DIR = setup_directories()
+#Config directories
+paths_dict = setup_directories_pathlib()
 
 #Load config
-config_path = os.path.join(BASE_DIR, "config.json")
+config_path = paths_dict["base_dir"] / "config.json"
 with open(config_path) as f:
     config = json.load(f)
     config_db_path = config.get("database_path", "mini.sqlite")
     seed_url = config['seed_url']
     start_position = config["start_position"]
     end_position = config["end_position"]
+    
 #DB setup
-db_path = os.path.join(DATA_DIR, config_db_path)
+db_path = paths_dict["data_dir"] / config_db_path
 db = db_initialization(db_path)
 print("DB connection initialized")
 
@@ -86,7 +86,7 @@ with sync_playwright() as p:
             logger.info(f"Fetched HTML content for {list_of_urls[i]}")
 
             filename = f"page{page_counter}.html"
-            output_path = os.path.join(DATA_DIR, filename)
+            output_path = paths_dict["data _dir"] / filename
 
             #HTML writing
             with open(output_path, "w", encoding="utf-8") as f:

@@ -1,7 +1,7 @@
 import re, time, random
 from playwright.sync_api import sync_playwright
 from stealth import stealth_context, human_scroll
-from utils import setup_loggers
+from utils import setup_loggers, slugify
 
 #Logging setup
 logger, error_logger = setup_loggers()
@@ -179,7 +179,9 @@ class MercadoLibreConfig:
         self.product_container_selector = ("li", "ui-search-layout__item")
         self.product_name_selector = ("h3", "poly-component__title-wrapper")
         self.price_selector = ("span", "andes-money-amount__fraction")
-        self.currency_selector = ("span", "andes-money-amount__currency-symbol")
+        #self.currency_selector = ("span", "andes-money-amount__currency-symbol")
+        self.search_results_page_product_image_selector_1 = ("img", "poly-component__image-overlay")
+        self.search_results_page_product_image_selector_2 = ("img", "poly-component__picture lazy-loadable")
 
     # ---------------------------
     # URL Construction
@@ -255,47 +257,85 @@ class MercadoLibreConfig:
         ITEMS_PER_PAGE = 49
         offset = (page_number - 1) * ITEMS_PER_PAGE
         return (f"{clean_canonical_url}_Desde_{offset}_NoIndex_True")
-    
         
     # ---------------------------
     # Product parsing
     # ---------------------------
     def product_extraction(self, soup):
+        #Find all product containers on the page
         containers = soup.find_all(
             self.product_container_selector[0],
             class_=self.product_container_selector[1]
         )
 
         products = []
+        seen_images = set()
 
         for container in containers:
-            name, price, currency = None, None, None
+            name, price, product_id, img, raw_price = None, None, None, None, None
+            currency = 'ARS'
 
+            #Name
             name_tag = container.find(
                 self.product_name_selector[0],
                 class_=self.product_name_selector[1]
             )
             if name_tag:
                 name = name_tag.get_text(strip=True)
-
+            #Price
             price_tag = container.find(
                 self.price_selector[0],
                 class_=self.price_selector[1]
             )
             if price_tag:
                 price = price_tag.get_text(strip=True)
+                raw_price = int(price.replace('.', '')) 
 
-            currency_tag = container.find(
-                self.currency_selector[0],
-                class_=self.currency_selector[1]
-            )
-            if currency_tag:
-                currency = currency_tag.get_text(strip=True)
+            #Currency
+            #currency_tag = container.find(self.currency_selector[0], class_=self.currency_selector[1])
+            #if currency_tag:
+                #currency = currency_tag.get_text(strip=True)
 
+            #Image
+            candidate = None
+            img_tag = container.find(self.search_results_page_product_image_selector_1[0])
+            if img_tag:
+                candidate = img_tag.get("data-src")
+                if not candidate:
+                    src = img_tag.get("src")
+                    if src and not src.startswith("data:image"):
+                        candidate = src
+            if candidate and candidate not in seen_images:
+                seen_images.add(candidate)
+                img = candidate
+            #print(name, ':', img)
+
+            #Product_id
+            # Extract item_id from image_link
+            if img is not None:
+                m = re.search(r'MLA(\d+)', img)
+            if m:
+                product_id = f"MLA{m.group(1)}"
+
+            #Slug
+            slug = None
+            if name:
+                try:
+                    slug = slugify(name)
+                except:
+                    pass
+
+            #Build products
             products.append({
                 "name": name,
+                "slug": slug,
+                "product_id": product_id,
                 "currency": currency,
-                "price": price,
+                "price": raw_price,
+                "images": [
+                img
+                ]
+
             })
 
         return products

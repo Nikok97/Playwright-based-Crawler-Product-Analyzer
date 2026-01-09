@@ -1,10 +1,12 @@
 import time, random
 import os
+import re
+import json
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from stealth import human_scroll
-from db import now, update_url_date, update_filename_for_url, update_url_status
-
+from pathlib import Path
+from db import now, update_url_date, update_filename_for_url, update_url_status, mark_url_as_failed
 
 #Def Now
 def now():
@@ -12,6 +14,14 @@ def now():
     from datetime import datetime
 
     return datetime.now().strftime("%Y%m%d")
+
+#Def Now
+def now_with_hours():
+    """
+    Returns the actual date and hour in string format.
+    """
+    from datetime import datetime   
+    return datetime.now().strftime("%Y-%m-%d, %H:%M hs.")
 
 def setup_loggers():
     """
@@ -146,7 +156,7 @@ def export_to_csv(db):
 
     print(f"Exported crawl results to {filename}")
 
-def setup_directories():
+def setup_directories_os():
     import os
     import sys
 
@@ -155,13 +165,36 @@ def setup_directories():
         CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
         PARENT_DIR = os.path.dirname(CURRENT_DIR)
         DATA_DIR = os.path.join(BASE_DIR, "data")
+        OUTPUT_DIR = os.path.join(DATA_DIR, "output")
         os.makedirs(DATA_DIR, exist_ok=True)
-        sys.path.append(PARENT_DIR)
     except Exception as e:
         print(f"Could not create required directories: error {e}")
         sys.exit()
 
-    return BASE_DIR, CURRENT_DIR, PARENT_DIR, DATA_DIR
+    return BASE_DIR, CURRENT_DIR, PARENT_DIR, DATA_DIR, OUTPUT_DIR
+
+def setup_directories_pathlib():
+    from pathlib import Path
+    try:
+        SCRIPT_PATH = Path(__file__).resolve()
+        CURRENT_DIR = SCRIPT_PATH.parent
+        BASE_DIR = CURRENT_DIR.parent
+        DATA_DIR = BASE_DIR / "data"
+        OUTPUT_DIR = DATA_DIR / "output"
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        paths_dict = {
+            "script_path": SCRIPT_PATH,
+            "current_dir": CURRENT_DIR,
+            "base_dir": BASE_DIR,
+            "data_dir": DATA_DIR,
+            "output_dir": OUTPUT_DIR
+        }
+    except Exception as e:
+        print(f"Could not create required directories: error {e}")
+        raise RuntimeError
+
+    return paths_dict
 
 def countdown_sleep_timer(waiting_time):
     import time
@@ -268,7 +301,7 @@ def persist_result_in_db(db, url, url_id, html, DATA_DIR):
     """
     #File path setup
     try:
-        filename = f"page{url_id}.html"
+        filename = f"page_{url_id}.html"
         output_path = os.path.join(DATA_DIR, filename)
         tmp_path = output_path + ".tmp"
     except Exception:
@@ -298,9 +331,235 @@ def persist_result_in_db(db, url, url_id, html, DATA_DIR):
         error_logger.error(f"DB or filesystem error while processing {url}", exc_info=True)
         raise
 
+def process_single_url(db, url, url_id, page, specific_site_config, page_counter, DATA_DIR):
+    """
+    Docstring for process_single_url
+    
+    :param db: Description
+    :param url: Description
+    :param url_id: Description
+    :param page: Description
+    :param specific_site_config: Description
+    :param page_counter: Description
+    :param DATA_DIR: Description
+    """
+    #Navigation phase
+    if not load_page(page, url, specific_site_config, max_attempts=2):
+        mark_url_as_failed(db, url)
+        return False
+    print(f"{page_counter}. Target JavaScript selector detected in URL: {url}")
+
+    #Scrolling phase
+    if not perform_scroll(page, url):
+        mark_url_as_failed(db, url)
+        return False
+
+    #Extra delay to let JS finish loading
+    time.sleep(random.uniform(3, 5))
+
+    #HTML extraction phase
+    html = extract_html(page, url)
+    if html is None:
+        mark_url_as_failed(db, url)
+        return False
+
+    #DB persistence phase
+    try:
+        persist_result_in_db(db, url, url_id, html, DATA_DIR)
+    except Exception:
+        mark_url_as_failed(db, url)
+        return False
+
+    return True
+
+def product_extraction(soup, specific_site_config):
+        containers = soup.find_all(
+            specific_site_config.product_container_selector[0],
+            class_=specific_site_config.product_container_selector[1]
+        )
+
+        products = []
+
+        for container in containers:
+            name, price, currency = None, None, None
+
+            name_tag = container.find(
+                specific_site_config.product_name_selector[0],
+                class_=specific_site_config.product_name_selector[1]
+            )
+            if name_tag:
+                name = name_tag.get_text(strip=True)
+
+            price_tag = container.find(
+                specific_site_config.price_selector[0],
+                class_=specific_site_config.price_selector[1]
+            )
+            if price_tag:
+                price = price_tag.get_text(strip=True)
+
+            currency_tag = container.find(
+                specific_site_config.currency_selector[0],
+                class_=specific_site_config.currency_selector[1]
+            )
+            if currency_tag:
+                currency = currency_tag.get_text(strip=True)
+
+            products.append({
+                "name": name,
+                "currency": currency,
+                "price": price,
+            })
+
+        return products
+
+def sort_pages(files):
+    """
+    Docstring for sort_pages
+    
+    :param files: list of unsorted html files 
+    """
+    if files is None:
+        return None
+    return sorted(
+        files,
+        key=lambda f: int(re.search(r"\d+", f).group()) # type: ignore
+    )
+
+def list_of_html_files_compiler(directory):
+    #HTML detection
+    page_pattern = re.compile(r"^page_(\d+)\.html$")
+    list_of_html_files = []
+    #List building
+    for file in os.listdir(directory):
+        match = page_pattern.match(file)
+        if match:
+            list_of_html_files.append(file)
+    #List ordering
+    if list_of_html_files is None:
+        return None
+    else:
+        return sorted(
+            list_of_html_files,
+            key=lambda f: int(re.search(r"\d+", f).group()) # type: ignore
+        )
+    
+def list_of_json_files_compiler(directory):
+    #JSON detection
+    page_pattern = re.compile(r"^page_(\d+)\.json$")
+    list_of_files = []
+    #List building
+    for file in os.listdir(directory):
+        match = page_pattern.match(file)
+        if match:
+            list_of_files.append(file)
+    #List ordering
+    if list_of_files is None:
+        return None
+    else:
+        return sorted(
+            list_of_files,
+            key=lambda f: int(re.search(r"\d+", f).group()) # type: ignore
+        )
+    
+def json_writer(output_dir, list_of_products):
+    import json
+    #JSON writing
+    with open(output_dir, 'w', encoding='utf-8') as f:
+        json.dump(list_of_products, f, indent=4, ensure_ascii=False)
+
+def slugify(text: str) -> str:
+    import unicodedata
+    # Normalize accents: á → a, ñ → n, etc.
+    text = unicodedata.normalize("NFKD", text)
+    text = text.encode("ascii", "ignore").decode("ascii")
+
+    # Lowercase
+    text = text.lower()
+
+    # Replace anything not alphanumeric with underscore
+    text = re.sub(r"[^a-z0-9]+", "_", text)
+
+    # Remove leading/trailing underscores
+    return text.strip("_")
+
+def write_json_manifest(path, product_counter, image_counter, site_name, date):
+    """
+    Docstring for write_manifest
+    
+    :param file: Description
+    :param product_counter: Description
+    :param image_counter: Description
+    :param date: Description
+    """
+    import json
+    #Write manifest
+    site_name = site_name
+
+    manifest_path = Path(path) / "manifest.json"
+
+    product_manifest = {
+        'site_name': site_name,
+        'total_products': product_counter,
+        'total_images': image_counter,
+        'generated_at': date}
+
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(product_manifest, f, indent=4, ensure_ascii=False)
+
+def download_image_to_product_path(temp_img_path, image_link, max_attempts=2):
+    import requests
+
+    # Retry loop to handle transient network or empty-response failures
+    for attempt in range(1, max_attempts + 1):
+        try:
+            # Fetch image as a stream to avoid loading it fully into memory
+            resp = requests.get(image_link, timeout=20, stream=True)
+        except requests.RequestException:
+            # Network error → retry
+            continue
+
+        # Only proceed on a successful HTTP response
+        if resp.status_code != 200:
+            resp.close()
+            continue
+
+        # Write response content to a temporary file
+        with open(temp_img_path, "wb") as f:
+            for chunk in resp.iter_content(1024):
+                f.write(chunk)
+
+        # Guard against zero-byte downloads
+        if temp_img_path.stat().st_size == 0:
+            temp_img_path.unlink()
+            if attempt == max_attempts:
+                # Final attempt failed → propagate failure
+                resp.close()
+                raise ValueError("Empty file")
+            resp.close()
+            continue
+
+        # Final filename is derived from the temp file
+        final_img_path = temp_img_path.with_suffix(".webp")
+
+        # If image already exists, avoid duplication
+        if final_img_path.exists():
+            temp_img_path.unlink()
+            resp.close()
+            return False
+
+        # Atomically promote temp file to final image
+        temp_img_path.rename(final_img_path)
+        resp.close()
+        return True
+
+def stable_image_name(url):
+    import hashlib
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+
+   
 
 
-
+        
 
 
 
