@@ -1,17 +1,19 @@
 import random
+import logging
 
+from typing import Optional
 from playwright.sync_api import sync_playwright
 from utilities.stealth import stealth_context
 from utilities.utils import countdown_sleep_timer, process_single_url, write_html
 
-def update_fetch_status_in_product_pages(row_id, db, filename, status):
+def update_fetch_status_in_product_pages(row_id: int, db: dict, filename: str | None, status: str):
     db["cur"].execute(
         "UPDATE ProductPages SET fetch_status = ?, filename = ? WHERE id = ?",
         (status, filename, row_id)
     )
     db["conn"].commit()
 
-def get_pending_product_url(db):
+def get_pending_product_url(db: dict) -> tuple[int, str, str] | tuple[None, None, None]:
     db["cur"].execute(
         '''
         SELECT id, product_url, product_name
@@ -28,7 +30,7 @@ def get_pending_product_url(db):
     
     row_id, product_url, name = row
 
-    #Lock
+    # Lock
     db["cur"].execute(
         'UPDATE ProductPages SET fetch_status = ? WHERE id = ?',
         ('fetching', row_id)
@@ -41,13 +43,13 @@ def get_pending_product_url(db):
 ##########################################################
 
 def run_crawler_product_scraper(
-    db,
-    paths_dict,
-    logger,
-    error_logger,
+    db: dict,
+    paths_dict: dict,
+    logger: logging.Logger,
+    error_logger: logging.Logger,
     page_counter=1):
 
-    def reset_stuck_jobs(db):
+    def reset_stuck_jobs(db: dict):
         db["cur"].execute(
             '''
             UPDATE ProductPages
@@ -71,7 +73,8 @@ def run_crawler_product_scraper(
 
         #Main crawling loop
         while True:
-            row_id, filename = [None] * 2
+            row_id: Optional[int] = None 
+            filename: Optional[str] = None 
             try:
                 # Get each product URL, name and row_id
                 row_id, product_url, product_name = get_pending_product_url(db)
@@ -95,7 +98,7 @@ def run_crawler_product_scraper(
                     logger, 
                     wait_selector="a.poly-component__title")
                 if not html:
-                    error_logger(f"HTML not fetched for URL: {product_url}")
+                    error_logger.error(f"HTML not fetched for URL: {product_url}")
                     continue
                 
                 #Write HTML to disk

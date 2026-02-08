@@ -1,8 +1,11 @@
+import logging
+
 from bs4 import BeautifulSoup
 from pathlib import Path
+
 from utilities.utils import list_of_html_files_compiler
 
-def insert_product_url(db, individual_product, url_id):
+def insert_product_url(db: dict, individual_product: dict, url_id: int) -> bool:
     """Stores product information related to a product URL in the database.
     """
     try:
@@ -20,11 +23,11 @@ def insert_product_url(db, individual_product, url_id):
 ########################################################
 
 def run_crawler_search_html_parser(
-        db, 
-        paths_dict, 
+        db: dict, 
+        paths_dict: dict, 
         specific_site_config, 
-        logger, 
-        error_logger
+        logger: logging.Logger, 
+        error_logger: logging.Logger
     ):
 
     list_of_html_files = list_of_html_files_compiler(paths_dict['data_dir'])
@@ -47,20 +50,17 @@ def run_crawler_search_html_parser(
                 #3. Extract product data from search results into a list of dict objects
                 products_of_page = specific_site_config.product_extraction(soup)
 
-                #DB Product insertion
+                # DB Product insertion
                 total_number_of_products_in_page = len(products_of_page)
 
                 for idx, individual_product in enumerate(products_of_page, start=1):
 
                     if insert_product_url(db, individual_product, url_id):
                         logger.info(
-                            f"Inserted product {idx} of {total_number_of_products_in_page} for URL {url_id}"
-                        )
+                            f"Inserted product {idx} of {total_number_of_products_in_page} for URL {url_id}")
                     else:
                         logger.info(
-                            f"Failed to insert product {idx} of {total_number_of_products_in_page} for URL {url_id}"
-                        )
-
+                            f"Failed to insert product {idx} of {total_number_of_products_in_page} for URL {url_id}")
         except Exception:
             error_logger.error(f"Unhandled exception for {file}", exc_info=True)
 

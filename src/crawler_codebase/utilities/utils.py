@@ -169,15 +169,16 @@ def extract_html(page: Page, url: str) -> str | None:
             exc_info=True)
         return None
 
-def process_single_url(page: Page, url: str, logger: logging.Logger, wait_selector: str) -> str | bool:
+def process_single_url(page: Page, url: str, logger: logging.Logger, wait_selector: str) -> str | None:
+
     #Navigation phase
     if not load_page(page, url, wait_selector, max_attempts=2):
-        return False
+        return None
     logger.info(f"Target JavaScript selector detected in URL: {url}")
 
     #Scrolling phase
     if not perform_scroll(page, url):
-        return False
+        return None
 
     #Extra delay to let JS finish loading
     time.sleep(random.uniform(3, 5))
@@ -185,7 +186,7 @@ def process_single_url(page: Page, url: str, logger: logging.Logger, wait_select
     #HTML extraction phase
     html = extract_html(page, url)
     if html is None:
-        return False
+        return None
 
     return html
 

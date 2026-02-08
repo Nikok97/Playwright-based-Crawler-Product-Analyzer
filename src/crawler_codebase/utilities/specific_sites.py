@@ -5,11 +5,13 @@ import random
 from playwright.sync_api import sync_playwright
 from utilities.stealth import stealth_context, human_scroll
 from utilities.utils import setup_loggers, slugify
+from typing import Optional, Tuple, Any
+from bs4.element import Tag
 
-#Logging setup
+# Logging setup
 logger, error_logger = setup_loggers()
 
-def site_registry():
+def site_registry() -> dict:
     """
     Dictionary object containing the specific configuration classes for each site.
     """
@@ -27,6 +29,7 @@ def specific_site_setup(SITE_REGISTRY: dict, site_name: str) -> tuple:
         raise ValueError(f"Unsupported site: {site_name}")
     specific_site_config = SITE_REGISTRY[site_name]()
     seed_url = specific_site_config.seed_urls[0]
+
     return specific_site_config, seed_url
 
 class AmazonConfig:
@@ -40,7 +43,7 @@ class AmazonConfig:
 
     def __init__(self):
         
-        # Base URLs or seed URLs
+        # Seed_URL (should lead to search results)
         self.seed_urls = [
             "https://www.amazon.com/s?k=laptop"
         ]
@@ -67,7 +70,7 @@ class AmazonConfig:
     # ---------------------------
 
     #ARS Function
-    def price_fallback_extraction_for_amz_ARS(self, container):
+    def price_fallback_extraction_for_amz_ARS(self, container: Tag) -> Tuple[Optional[str], Optional[str]]:
 
         price_pattern_ARS = r'ARS\s*([\d.,]+)'
 
@@ -86,7 +89,7 @@ class AmazonConfig:
         return currency, price
 
     #USD Function
-    def price_fallback_extraction_for_amz_USD(self, container):
+    def price_fallback_extraction_for_amz_USD(self, container: Tag) -> Tuple[Optional[str], Optional[str]]:
 
         price_pattern_USD = r'\$\s*([\d.,]+)'
 
@@ -109,7 +112,7 @@ class AmazonConfig:
     # ---------------------------
     # Product parsing function for text.py
     # ---------------------------
-    def product_extraction(self, soup):
+    def product_extraction(self, soup: Tag) -> list[dict]:
 
         containers = soup.find_all("div", attrs={"data-component-type": "s-search-result"})
 
@@ -118,28 +121,26 @@ class AmazonConfig:
         #3. Price and name extraction
         for container in containers:
 
-            name = None
-            price = None
-            currency = None
+            name, price, currency = [None] * 3
 
-            #Name extraction
+            # Name extraction
             name_tag = container.find(self.product_name_selector[0], class_=self.product_name_selector[1])
             if name_tag:
                 name = name_tag.get_text(strip=True)
 
-            #Price extraction
+            # Price extraction
             price_tag = container.find(self.price_selector[0], class_=self.price_selector[1])
             if price_tag:
                 price = price_tag.get_text(strip=True)
                 if price.endswith('.'):
                     price = price[:-1]
 
-            #Currency extraction
+            # Currency extraction
             currency_tag = container.find(self.currency_selector[0], class_=self.currency_selector[1])
             if currency_tag:
                 currency = currency_tag.get_text(strip=True)
 
-            #Fallback extraction
+            # Fallback extraction
             if price is None:
 
                 currency, price = self.price_fallback_extraction_for_amz_USD(container)
@@ -151,8 +152,6 @@ class AmazonConfig:
             }
 
             products_of_page.append(individual_product)
-
-        #print(products_of_page)
 
         return products_of_page
 
@@ -169,7 +168,7 @@ class MercadoLibreConfig:
 
     def __init__(self):
 
-        # Set seed_url here
+        # Seed_URL (should lead to search results)
         self.seed_urls = [
             "https://listado.mercadolibre.com.ar/boya-natacion-aguas-abiertas"
         ]
@@ -194,7 +193,7 @@ class MercadoLibreConfig:
     # ---------------------------
     # URL Construction
     # ---------------------------
-    def discover_first_paginated_url(self, seed_url: str):
+    def discover_first_paginated_url(self, seed_url: str) -> str | None:
         """
         Fetch the first MercadoLibre canonical URL.
         """
@@ -210,7 +209,7 @@ class MercadoLibreConfig:
                 context = stealth_context(browser)
                 page = context.new_page()
 
-                #Fetch page 1 of ML
+                # Fetch page 1 of ML
                 try:
                     page.goto(seed_url, timeout=30000)
                     loaded = True
@@ -218,7 +217,7 @@ class MercadoLibreConfig:
                     error_logger.warning(f"First failure on {seed_url}", exc_info=True)
                     time.sleep(random.uniform(15, 25))
 
-                #Second try
+                # Second try
                 if not loaded:
                     try:
                         time.sleep(random.uniform(11, 14))
@@ -229,7 +228,7 @@ class MercadoLibreConfig:
                         error_logger.warning(f"Second failure on {seed_url}", exc_info=True) 
                         return None  
                 
-                #If page loaded, proceed and scroll
+                # If page loaded, proceed and scroll
                 if loaded:
                     try:
                         print(f"Scrolling for {seed_url}")
@@ -253,7 +252,7 @@ class MercadoLibreConfig:
             finally:
                 browser.close()
 
-    def build_pagination_url(self, canonical_url: str, page_number: int):
+    def build_pagination_url(self, canonical_url: str, page_number: int) -> str:
         "Algorithmic Mercado libre URL generator."
         try:
             clean_canonical_url = canonical_url.split("_Desde_")[0]
@@ -269,8 +268,9 @@ class MercadoLibreConfig:
     # ---------------------------
     # Product parsing
     # ---------------------------
-    def product_extraction(self, soup):
-        #Find all product containers on the page
+    def product_extraction(self, soup: Tag) -> list[dict]:
+
+        # Find all product containers on the page
         containers = soup.find_all(
             self.product_container_selector[0],
             class_=self.product_container_selector[1]
@@ -280,68 +280,73 @@ class MercadoLibreConfig:
         seen_images = set()
 
         for container in containers:
-            name, price, product_id, img, slug, link = [None] * 6
+            name: Optional[str] = None
+            price: Optional[str | int] = None
+            raw_price: Optional[int] = None
+            product_id: Optional[str] = None
+            img: Optional[str] = None
+            slug: Optional[str] = None
+            link: Optional[str] = None
             currency = 'ARS'
 
-            #Name
+            # Name
             name_tag = container.find(
                 self.product_name_selector[0],
-                class_=self.product_name_selector[1]
-            )
+                class_=self.product_name_selector[1])
             if name_tag:
                 name = name_tag.get_text(strip=True)
 
-            #Price
+            # Price
             price_tag = container.find(
                 self.price_selector[0],
-                class_=self.price_selector[1]
-            )
+                class_=self.price_selector[1])
             if price_tag:
-                price = price_tag.get_text(strip=True)
-                raw_price = int(price.replace('.', '')) 
+                price_text = price_tag.get_text(strip=True)
+                try:
+                    raw_price = int(price_text.replace(".", ""))
+                except:
+                    price = int(price_text)
+                    raw_price = price
 
-            #Currency
-            #currency_tag = container.find(self.currency_selector[0], class_=self.currency_selector[1])
-            #if currency_tag:
-                #currency = currency_tag.get_text(strip=True)
-
-            #Image
+            # Image
             candidate = None
             img_tag = container.find(self.search_results_page_product_image_selector_1[0])
             if img_tag:
                 candidate = img_tag.get("data-src")
                 if not candidate:
-                    src = img_tag.get("src")
+                    src: Any = img_tag.get("src")
                     if src and not src.startswith("data:image"):
                         candidate = src
             if candidate and candidate not in seen_images:
                 seen_images.add(candidate)
                 img = candidate
 
-            #Product_id
+            # Product_id
             # Extract item_id from image_link
+            m = None
             if img is not None:
                 m = re.search(r'MLA(\d+)', img)
             if m:
                 product_id = f"MLA{m.group(1)}"
 
-            #Slug
+            # Slug
             if name:
                 try:
                     slug = slugify(name)
                 except:
                     pass
 
-            #Link of product
+            # Link of product
             link_tag = container.find("a", class_="poly-component__title")
-            href = link_tag.get("href")
+            href: Any | None = None
+            if link_tag:
+                href = link_tag.get("href")
             if href:
                 link = href
-            if href.startswith("https://click"):
+            if href and href.startswith("https://click"):
                 link = None
 
-
-            #Build products
+            # Build products
             products.append({
                 "name": name,
                 "slug": slug,
@@ -352,32 +357,36 @@ class MercadoLibreConfig:
                 "images": [
                 img
                 ]
-
             })
 
         return products
     
 
-    def individual_product_data_extraction(self, soup):
+    def individual_product_data_extraction(self, soup: Tag) -> dict:
         
         seen_images = set()
 
-        name, price, product_code, img, slug, link = [None] * 6
+        # Variable initialization
+        name: Optional[str] = None
+        price: Optional[str | int] = None
+        raw_price: Optional[int] = None
+        product_code: Optional[str] = None
+        img: Optional[str | Any] = None
+        slug: Optional[str] = None
+        link: Optional[str] = None
 
-        #Currency
+        # Currency
         currency = 'ARS'
 
-        #Name
+        # Name
         name_tag = soup.find(
             self.individual_product_name_selector[0],
             class_=self.individual_product_name_selector[1]
         )
         if name_tag:
             name = name_tag.get_text(strip=True)
-        else:
-            print('no name found')
 
-        #Price
+        # Price
         price_tag = soup.find(
             self.price_selector[0],
             class_=self.price_selector[1]
@@ -386,54 +395,56 @@ class MercadoLibreConfig:
             price = price_tag.get_text(strip=True)
             raw_price = int(price.replace('.', '')) 
 
-        #Image
+        # Image
         candidate = None
         img_tag = soup.find(self.search_results_page_product_image_selector_1[0])
         if img_tag:
             candidate = img_tag.get("data-src")
             if not candidate:
-                src = img_tag.get("src")
+                src: Any = img_tag.get("src")
                 if src and not src.startswith("data:image"):
                     candidate = src
         if candidate and candidate not in seen_images:
             seen_images.add(candidate)
             img = candidate
 
-        #Product_id
+        # Product_id
         # Extract item_id from image_link
+        m: Any | None = None
         if img is not None:
             m = re.search(r'MLA(\d+)', img)
         if m:
             product_code = f"MLA{m.group(1)}"
 
-        #Slug
+        # Slug
         if name:
             try:
                 slug = slugify(name)
             except:
                 pass
 
-        #Link of product
+        # Link of product
         link_tag = soup.find("a", class_="poly-component__title")
-        href = link_tag.get("href")
-        if href:
-            link = href
-        if href.startswith("https://click"):
-            link = None
+        if link_tag:
+            href: Any = link_tag.get("href")
+            if href:
+                link = href
+                if href.startswith("https://click"):
+                    link = None
 
-        #Reviews
+        # Reviews
         reviews = None
         reviews_tag = soup.find("p", class_="andes-visually-hidden")
         if reviews_tag:
             reviews = reviews_tag.get_text(strip=True)
 
-        #Build products
-        product = ({
+        # Build products
+        product: dict = ({
             "name": name,
             "slug": slug,
-            "product_code": product_code,
-            "currency": currency,
             "price": raw_price,
+            "currency": currency,
+            "product_code": product_code,
             "product_url" : link,
             "reviews" : reviews,
             "images": [

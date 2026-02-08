@@ -1,7 +1,9 @@
+import logging
 
-from utilities.database import insert_url, now, already_pending_or_fetched_url
+from utilities.database import insert_url, already_pending_or_fetched_url
+from utilities.utils import now_with_hours
 
-def update_url_status(url, db: dict, status: str):
+def update_url_status(url: str, db: dict, status: str):
     """Sets the crawling status of an URL: pending / fetched / failed."""
     db["cur"].execute(
         'UPDATE Urls SET status = ? WHERE url_name = ?',
@@ -11,14 +13,16 @@ def update_url_status(url, db: dict, status: str):
 
 def resolve_pagination(
     specific_site_config, 
-    seed_url, 
-    site_name, 
-    error_logger):
+    seed_url: str, 
+    site_name: str, 
+    error_logger: logging.Logger) -> str | None:
     
     canonical_url = None
-    #Pagination
+
+    # Pagination
     pagination_mode = specific_site_config.pagination_mode
-    ##If pagination is read from config as dynamic:
+
+    # If pagination is read from config as dynamic:
     if pagination_mode == "dynamic":
         try:
             canonical_url = specific_site_config.discover_first_paginated_url(seed_url)
@@ -38,32 +42,33 @@ def resolve_pagination(
 
 def alrogithmic_paginator(
     specific_site_config, 
-    pages_to_crawl, 
-    canonical_url):
+    pages_to_crawl: int, 
+    canonical_url: str) -> list[str]:
 
-    #Algorithmic pagination as the end stage of both modes
-    list_of_urls = list()
+    # Algorithmic pagination as the end stage of both modes
+    list_of_urls: list[str] = list()
     for i in range(1, pages_to_crawl + 1):
         url = specific_site_config.build_pagination_url(canonical_url, i)
         list_of_urls.append(url)
     return list_of_urls
 
 def db_insert_paginated_urls(
-    db, 
-    list_of_urls, 
-    logger, 
-    error_logger):
+    db: dict, 
+    list_of_urls: list[str], 
+    logger: logging.Logger, 
+    error_logger: logging.Logger):
 
-    #URL DB inserting
+    # URL DB inserting
     page_counter = 1
+    
     for i in range(len(list_of_urls)):
             
-            #Check if URL has been already fetched
+            # Check if URL has been already fetched
             if already_pending_or_fetched_url(list_of_urls[i], db):
                 logger.info(f"Skipping already fetched URL: {list_of_urls[i]}")
                 continue
 
-            date = str(now())
+            date = str(now_with_hours())
             try:
                 insert_url(list_of_urls[i], db, date)
                 logger.info(f"{page_counter}. Inserted URL: {list_of_urls[i]}")
@@ -79,12 +84,12 @@ def db_insert_paginated_urls(
 
 def run_crawler_seed(
     specific_site_config,
-    seed_url,
-    site_name,
-    logger,
-    error_logger,
-    pages_to_crawl,
-    db
+    seed_url: str,
+    site_name: str,
+    logger: logging.Logger,
+    error_logger: logging.Logger,
+    pages_to_crawl: int,
+    db: dict
     ):
 
     canonical_url = resolve_pagination(
