@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Pytest / testing
+.pytest_cache/
+.pytest_tmp/
+.coverage
+htmlcov/
+
+# Type checkers / linters
+.mypy_cache/
+.ruff_cache/
+
+# Runtime databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Runtime crawler output
+data/
+*.html
+
+# Keep HTML files used by tests
+!tests/**/*.html
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

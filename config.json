@@ -1,0 +1,5 @@
+{
+  "site": "bookstoscrape",
+  "database_path": "db.sqlite",
+  "pages_to_crawl": 1
+}
