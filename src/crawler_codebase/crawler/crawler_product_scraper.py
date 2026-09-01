@@ -58,6 +58,11 @@ def get_pending_product_url(db: dict) -> tuple[int, str] | tuple[None, None]:
     
     return row_id, product_url
 
+def occasional_long_pause_to_simulate_browsing(page_counter):
+    if (page_counter % 5 == 0) and (page_counter != 0):
+        special_wait_time = random.uniform(5, 7)
+        countdown_sleep_timer(special_wait_time)
+
 def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, error_logger, page_counter=1, fetch_html=process_single_url) -> None:
     
     # Main crawling loop
@@ -80,9 +85,7 @@ def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, err
                 continue
             
             # Occasional long pause to simulate browsing
-            if (page_counter % 5 == 0) and (page_counter != 0):
-                special_wait_time = random.uniform(5, 7)
-                countdown_sleep_timer(special_wait_time)
+            occasional_long_pause_to_simulate_browsing(page_counter)
 
             # Process a single URL
             html = fetch_html(

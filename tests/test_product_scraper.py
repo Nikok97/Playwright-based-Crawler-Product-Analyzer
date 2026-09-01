@@ -393,19 +393,9 @@ def test_scrape_urls_unhappy_path_fetch_html_produces_exception_but_continues(tm
 
 def test_scrape_urls_special_wait_time_is_triggered(tmp_db, tmp_paths_dict):
 
-    """
-    page_counter=5
-    random.uniform patched to return 6
-    countdown_sleep_timer patched as mock_countdown
-    assert_any_call(6)
-    """
+    fake_html_fetching : Mock = create_autospec(process_single_url)
 
-    def fake_html_fetching(
-                page, 
-                product_url, 
-                logger, 
-                wait_selector):
-        return 'html_content'
+    fake_html_fetching.return_value = 'html_content'
 
     fake_site_config = FakeSiteConfig('dummy_wait_selector')
 
