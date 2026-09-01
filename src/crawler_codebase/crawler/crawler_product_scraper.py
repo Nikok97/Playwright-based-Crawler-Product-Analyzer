@@ -77,7 +77,6 @@ def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, err
             if product_url is None:
                 update_fetch_status_in_product_pages(row_id, db, filename, status='failed_unfetchable')
                 logger.info(f"URL not found for {row_id}. Continuing program")
-                
                 continue
             
             # Occasional long pause to simulate browsing
@@ -92,7 +91,8 @@ def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, err
                 logger, 
                 wait_selector=specific_site_config.wait_selector
             )
-            
+
+            # If the page did not return a HTML:            
             if not html:
 
                 error_logger.error(f"HTML not fetched for URL: {product_url}")

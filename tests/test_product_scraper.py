@@ -9,7 +9,7 @@ from playwright.sync_api import Page
 
 from utilities.database import db_initialization, db_cur_and_conn_closer, insert_url, update_url_status, insert_product_url
 from utilities.utils import process_single_url, load_page, extract_html, perform_scroll, human_scroll
-from crawler.crawler_product_scraper import get_pending_product_url, scrape_product_urls
+from crawler.crawler_product_scraper import get_pending_product_url, scrape_product_urls, process_single_url
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger("test_logger")
@@ -69,7 +69,6 @@ def date_for_testing():
 def individual_product_page_for_testing():
     dic = {'link': 'www.product.com'}
     return dic
-
 
 @pytest.fixture
 def tmp_paths_dict(tmp_path):
@@ -312,6 +311,25 @@ def test_scrape_urls_unhappy_path_fetch_html_produces_exception(tmp_db, tmp_path
     result = tmp_db['cur'].fetchone()
 
     assert (result[0] == 'failed')
+
+def test_no_product_url_does_not_impede_loop_from_continuing(tmp_db, individual_product_page_for_testing, tmp_paths_dict):
+
+    mock_fake_html_fetching = create_autospec(process_single_url)
+
+    insert_product_url(tmp_db, {'link': None})
+    insert_product_url(tmp_db, individual_product_page_for_testing)
+
+    with patch('crawler.crawler_product_scraper.countdown_sleep_timer'), patch('crawler.crawler_product_scraper.write_html') as mock_write_html:
+
+        mock_fake_html_fetching.side_effect = ['test_html_content']
+
+        mock_write_html.return_value = 'Function_successfully_called'
+
+        scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, FakeSiteConfig('dummy_selector'), logger, error_logger, fetch_html=mock_fake_html_fetching)
+
+    mock_fake_html_fetching.assert_called_once()
+
+    mock_write_html.assert_called_once_with(tmp_paths_dict['output_dir'], 'product_1.html', 'test_html_content')
 
 def test_scrape_urls_unhappy_path_fetch_html_produces_exception_but_continues(tmp_db, tmp_paths_dict):
 
