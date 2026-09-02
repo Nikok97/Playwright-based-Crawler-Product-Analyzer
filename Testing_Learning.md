@@ -1524,6 +1524,48 @@ branch did not run.
 This is branch isolation: control the surrounding flow so the observed call or
 absence of a call has only one relevant explanation.
 
+Later refinement from automated mutation testing:
+
+    assert_any_call(expected_value)
+
+is still weak evidence if another branch can independently produce the same
+expected call.
+
+This happened when random.uniform was patched with one stable return value for
+the whole scraper test. The intended special wait used:
+
+    random.uniform(5, 7)
+    -> countdown_sleep_timer(6)
+
+but the later normal wait also used random.uniform. Because the same patched
+random.uniform returned 6 there as well, the normal wait could produce:
+
+    random.uniform(1, 5)
+    -> mocked result 6
+    -> countdown_sleep_timer(6)
+
+Therefore:
+
+    mock_countdown_sleep_timer.assert_any_call(6)
+
+could pass even when the special-wait branch never executed.
+
+Refined rule:
+
+    The observed evidence must not only be compatible with the intended branch.
+    It should be difficult or impossible for an unrelated branch to produce the
+    same evidence.
+
+When several branches share the same dependency and can produce indistinguishable
+calls, useful options are:
+
+- isolate the other branch;
+- inspect a more specific interaction;
+- extract the behavior behind a helper boundary and test the helper directly.
+
+This became a concrete example of a test being technically correct while its
+evidence remained semantically ambiguous.
+
 
 **============================================================**
 37. PAGE COUNTERS AND FAILURE-THEN-SUCCESS FLOWS
@@ -4653,10 +4695,8 @@ Conclusion:
 
 
 **============================================================**
-105. MUTATION TESTING AND TEST-SUITE ADEQUACY — NOW PRACTICED MANUALLY
+105. MUTATION TESTING AND TEST-SUITE ADEQUACY — NOW PRACTICED MANUALLY AND AUTOMATICALLY
 **============================================================**
-
-The strongest immediate next topic is mutation testing.
 
 Traditional execution asks:
 
@@ -4669,12 +4709,13 @@ Mutation testing asks:
 A mutation tool or deliberate manual mutation makes small production changes,
 for example:
 
-    replace continue with return
+    replace continue with return or break
     replace fetched with failed
     remove a commit
+    remove rollback
     remove page_counter += 1
     reverse a condition
-    return None instead of a result
+    alter a numeric boundary
 
 Then the suite is run.
 
@@ -4686,53 +4727,91 @@ Outcomes:
 
     surviving mutation
         -> all tests still passed
-        -> either the behavior is not meaningfully tested, the assertion is too
-           weak, or the mutation is behaviorally equivalent
+        -> the current evidence did not distinguish the mutant from the original
+        -> this may indicate a meaningful gap, weak/ambiguous evidence, an
+           intentionally unprotected behavior, or an equivalent mutant
 
-This extends the previously learned strength check:
+The strength check remains:
 
-    Could the test still pass if the behavior were removed or broken?
+    Could the test still pass if the behavior it claims to protect were removed
+    or subtly changed?
 
 Mutation testing turns that question into an experiment.
 
-The current suite contains suitable learning examples:
+The manual phase established important domain-level examples around:
 
-- a historical scraper test returns before reaching its Arrange/Act/Assert
-  body;
-- one retry test's name says reload is called while its arrangement and
-  assertion describe the no-retry path;
-- status transitions, loop continuation, rollback, counters, and pipeline
-  ordering all provide meaningful mutation targets.
+- page-counter progression;
+- database final status;
+- transaction durability;
+- pipeline skip/continue behavior;
+- rollback and partial database updates.
 
-Important concepts to learn:
+The automated phase then extended this with a real mutation tool over the
+product-scraper module.
 
-- mutation score;
-- killed and surviving mutants;
-- equivalent mutants;
-- weak assertions despite line coverage;
-- false confidence from a large passing test count;
-- selecting mutations tied to domain contracts rather than chasing a perfect
-  score.
+Practiced directly:
 
-The objective is not to kill every theoretical mutation. It is to learn which
-important crawler contracts are actually protected.
+- establishing a green baseline before mutation execution;
+- configuring a deliberately narrow mutation scope;
+- generating mutations automatically rather than choosing them all by hand;
+- storing mutation jobs and outcomes in a session database;
+- running generated mutants against the configured pytest command;
+- reading killed, survived, timeout, and tool/execution-problem outcomes;
+- inspecting actual mutation diffs rather than reasoning only from operator names;
+- interpreting a survival-rate summary without treating it as a quality grade;
+- recognizing that mutation operators are syntax-driven rather than domain-aware;
+- identifying noisy mutations generated from type-hint syntax such as `str | None`;
+- prioritizing survivors that change real crawler behavior;
+- refusing to add tests merely to improve the mutation percentage;
+- recognizing when a source refactor makes an old mutation session stale.
 
-Status update:
+The first automated run against crawler_product_scraper.py generated 87 jobs.
+The initial report completed all 87 and showed 33 surviving mutants, a survival
+rate of 37.93%.
 
-    The first manual mutation-testing cycle has now been practiced against the
-    real product-scraper workflow. Killed and surviving mutants, evidence
-    strength, commit visibility, and test-boundary strengthening have all been
-    exercised directly. Sections 113-116 record those results.
+That number was useful as a summary, but not as the primary learning result.
 
-Still not yet practiced in this phase:
+The important work was survivor classification.
 
-- running an automated mutation tool over a deliberately narrow production scope;
-- reading and interpreting a mutation score;
-- systematically classifying surviving mutants as meaningful gaps versus
-  behaviorally equivalent mutations.
+Two especially useful survivors were investigated:
 
-These remaining points are enough to justify one short continuation of the
-mutation-testing phase before moving to site-adapter contracts.
+1. product_url is None:
+       continue
+       -> break
+
+   This exposed a real missing continuation contract.
+
+2. special-wait condition:
+       page_counter != 0
+       -> page_counter == 0
+
+   This exposed ambiguous interaction evidence: another wait branch could satisfy
+   the same mock assertion even when the intended branch never executed.
+
+Important mutation-testing conclusions now practiced:
+
+- a surviving mutant is a question, not automatically a defect;
+- a killed mutant is evidence that some test distinguishes the changed behavior,
+  not proof that every semantic aspect of the mutation is directly tested;
+- similar failure branches may require separate continuation contracts;
+- a test can execute the right line and still fail to distinguish wrong behavior;
+- an interaction assertion may be correct yet non-discriminating if another path
+  can produce the same call;
+- mutation testing can reveal a need for a better test boundary or even a small
+  production refactor;
+- after refactoring source structure, regenerate mutants instead of optimizing
+  against an obsolete session;
+- mutation score should guide investigation, not become a target to maximize.
+
+Still useful before closing the mutation topic completely:
+
+- run one fresh automated session against the current refactored source;
+- inspect only one or two remaining high-value survivors;
+- if available, classify one convincing equivalent or intentionally unimportant
+  mutant through a concrete example.
+
+After that, the mutation-testing phase should stop and the roadmap should move
+to consumer-driven adapter contracts.
 
 
 **============================================================**
@@ -5039,7 +5118,8 @@ The working method was:
 This is preferable to changing arbitrary lines. The mutation should represent a
 plausible defect in a contract that matters to the crawler.
 
-Three mutations were practiced.
+The first three product-scraper mutations were practiced as follows.
+Additional application-level and rollback mutations are recorded later.
 
 1. Remove the successful page-counter increment
 
@@ -5371,255 +5451,754 @@ visibility of the first connection's transaction.
 
 
 **============================================================**
-116. CURRENT LEARNING POSITION AFTER MANUAL MUTATION PRACTICE
+116. CURRENT LEARNING POSITION AFTER AUTOMATED MUTATION PRACTICE
 **============================================================**
 
-The mutation-testing phase is now genuinely underway rather than merely planned.
+The mutation-testing phase has now progressed through both manual and automated
+practice.
 
-Practiced directly:
+Practiced directly before the automated run:
 
 - deliberate manual mutation of real production code;
 - predicting which existing test should kill a mutant;
 - killed mutants;
-- a surviving mutant caused by insufficiently discriminating evidence;
-- strengthening a test boundary in response to a survivor;
-- distinguishing a test's actual protected contract from its general name;
-- observing that one test can survive a mutation while another test protects the
-  changed behavior;
+- a surviving missing-commit mutant;
+- strengthening transaction evidence with a second SQLite connection;
+- distinguishing current transactional state from committed visibility;
+- observing that a later commit can make an earlier uncommitted change durable;
 - filesystem evidence for counter progression;
 - database-state evidence for lifecycle status;
-- same-connection visibility versus committed visibility;
-- two connections to one SQLite database file;
-- later commits masking earlier missing commits;
-- contract-level durability evidence versus mock interaction evidence;
-- yield fixtures as generator functions and pytest's fixture handoff mechanism.
+- pipeline control-flow mutation;
+- rollback mutation in the product parser;
+- yield fixtures as generator functions and pytest's setup/handoff/cleanup model.
 
-Not yet practiced sufficiently to close the mutation-testing topic:
+Practiced directly during the automated run:
 
-- an automated mutation run against a real production module;
-- mutation score as a summary metric;
-- systematic inspection of several surviving mutants;
-- distinguishing a genuinely equivalent mutant from a meaningful surviving
-  defect through concrete examples.
+- creating a Cosmic Ray configuration for one narrow production module;
+- validating the mutation runner's baseline separately from a manual pytest run;
+- initializing a mutation session database;
+- generating 87 candidate mutation jobs from the real product scraper;
+- executing the complete mutation session;
+- reading a completed session report;
+- interpreting 33 survivors out of 87 jobs as a starting point for investigation,
+  not a target score;
+- inspecting source diffs for individual survivors;
+- recognizing syntax-driven mutation noise;
+- distinguishing useful behavioral survivors from low-value survivors;
+- adding a focused regression test from an automatically discovered gap;
+- using a survivor to expose ambiguous mock evidence;
+- refactoring a behavior into a helper to create a cleaner test boundary;
+- testing orchestration and helper logic at different levels;
+- understanding that patching the helper in an orchestration test means the
+  helper's real body is not exercised there;
+- keeping the helper real while patching its dependencies in the helper-level
+  test;
+- recognizing that contract responsibility can move from one test to another
+  after refactoring;
+- distinguishing "this test kills the mutant" from "this test directly expresses
+  every semantic case suggested by the mutant";
+- recognizing that a mutation session becomes stale after relevant source
+  refactoring.
 
-Recommended stopping rule for this phase:
+Current mutation-testing status:
 
-    perform only a few more high-value mutations that exercise genuinely new
-    reasoning, then run one narrow automated mutation session and classify its
-    survivors
+    substantially complete
 
-After that, move to consumer-driven adapter contracts rather than continuing to
-mutate every branch in the project.
+One concept would still be useful to see concretely if a good example appears:
+
+    equivalent mutant
+        -> a generated mutation for which no meaningful input can distinguish
+           the mutated program from the original behavior
+
+This should not justify a long search. If the fresh mutation run contains a clear
+example, classify it. If not, mutation testing can still be considered sufficiently
+practiced for the current learning stage.
 
 
 **============================================================**
-117. CONCRETE FOLLOW-UPS FROM THE CURRENT CRAWLER
+117. AUTOMATED MUTATION RESULT: MISSING NO-URL CONTINUATION CONTRACT
 **============================================================**
 
-The uploaded crawler contains several suitable next exercises. They should be
-selected in the following order.
+The automated mutation session generated this control-flow mutant in
+scrape_product_urls():
 
-A. Finish mutation testing with a small number of high-value targets
+    if product_url is None:
+        update status to failed_unfetchable
+        continue
+
+became:
+
+    if product_url is None:
+        update status to failed_unfetchable
+        break
+
+The mutant survived the existing 13 product-scraper tests.
+
+At first this looked surprising because the scraper suite already contained
+continuation tests.
+
+Inspection showed that those tests protected different branches:
+
+    fetch_html raises Exception
+        -> later product still processed
+
+    fetch_html returns None
+        -> later product still processed
+
+but there was no test proving:
+
+    product_url is None
+        -> later valid product still processed
+
+The existing one-row no-URL test proved only:
+
+    row with product_url None
+        -> fetch_html not called
+        -> write_html not called
+        -> row becomes failed_unfetchable
+
+With only one row, both:
+
+    continue
+
+and:
+
+    break
+
+produce the same final evidence.
+
+A new focused test was added:
+
+    test_no_product_url_does_not_impede_loop_from_continuing
+
+Its arrangement is:
+
+    row 1 -> product_url None
+    row 2 -> valid product URL
+
+Its decisive evidence is that the later valid row reaches the fetching/writing
+path.
+
+When the mutant was applied manually, the new test failed because the fetch mock
+had zero calls:
+
+    Expected 'mock' to have been called once.
+    Called 0 times.
+
+The failure chain was:
+
+    row 1 has no URL
+    -> mutant executes break
+    -> while loop exits
+    -> row 2 is never fetched
+    -> continuation assertion fails
+
+This killed the mutant.
+
+General lessons:
+
+- two branches may share the general concept "failure then continue" while still
+  representing separate contracts;
+- one-row failure tests cannot prove loop continuation;
+- a continuation test needs a later observation point;
+- automated mutation testing can find a gap that ordinary branch review missed;
+- adding a test is justified when the survivor reveals an important contract,
+  not merely because the survivor exists.
+
+
+**============================================================**
+118. AUTOMATED MUTATION RESULT: AMBIGUOUS SPECIAL-WAIT EVIDENCE
+**============================================================**
+
+Another surviving mutant targeted the special-wait condition:
+
+    if (page_counter % 5 == 0) and (page_counter != 0):
+
+became:
+
+    if (page_counter % 5 == 0) and (page_counter == 0):
+
+The existing test used page_counter=5, patched random.uniform to return 6, and
+checked:
+
+    mock_countdown_sleep_timer.assert_any_call(6)
+
+The expectation was that the special-wait branch would call:
+
+    random.uniform(5, 7)
+    -> 6
+    -> countdown_sleep_timer(6)
+
+However, scrape_product_urls() also contained a normal post-success wait:
+
+    random.uniform(1, 5)
+    -> countdown_sleep_timer(wait_time)
+
+Because random.uniform was patched with one stable return value, the normal wait
+also returned 6.
+
+Therefore under the mutant:
+
+    special-wait branch does not execute
+    -> successful scrape reaches normal wait
+    -> mocked random.uniform(1, 5) returns 6
+    -> countdown_sleep_timer(6)
+    -> assert_any_call(6) still passes
+
+This exposed a new evidence problem:
+
+    expected call observed
+        !=
+    intended branch proven
+
+The test was technically checking a real interaction, but the interaction was not
+unique to the branch it was intended to prove.
+
+The production code was then refactored so the special-wait logic could live
+behind a dedicated helper such as:
+
+    occasional_long_pause_to_simulate_browsing(page_counter)
+
+This created two test responsibilities.
+
+Orchestration-level scraper test:
+
+    patch occasional_long_pause_to_simulate_browsing
+    -> run scrape_product_urls()
+    -> verify the scraper delegates to the helper
+
+Because the helper is patched in this test, its real internal condition is not
+executed.
+
+Helper-level test:
+
+    keep occasional_long_pause_to_simulate_browsing real
+    patch random.uniform
+    patch countdown_sleep_timer
+    -> call helper with page_counter=5
+    -> call helper with page_counter=4
+    -> verify sleep call history is exactly [call(1)]
+
+This proves in the chosen examples:
+
+    5 -> special wait occurs
+    4 -> special wait does not occur
+
+When the condition mutant was applied, the helper test produced:
+
+    mock_sleep.call_args_list == []
+
+instead of:
+
+    [call(1)]
+
+and therefore killed the mutant.
+
+Important distinctions learned:
+
+1. Mock the dependency, not the behavior under test.
+
+   In the scraper orchestration test:
+       helper is mocked
+
+   In the helper logic test:
+       helper is real
+       sleep/randomness dependencies are mocked
+
+2. Refactoring can move contract ownership.
+
+   Before extraction:
+       scraper test attempted to protect the special-wait condition
+
+   After extraction:
+       scraper test protects delegation
+       helper test protects the condition itself
+
+3. Killing a mutant and directly expressing its semantic edge case are different.
+
+   The helper test with 5 and 4 killed:
+       != 0 -> == 0
+
+   even though it did not call the helper with 0.
+
+   The mutant was killed because the mutated condition also prevented 5 from
+   triggering the wait.
+
+4. A test does not need to be strengthened indefinitely once it already proves
+   the contract chosen for that test.
+
+
+**============================================================**
+119. ADDITIONAL MANUAL MUTATION RESULTS: PIPELINE AND ROLLBACK
+**============================================================**
+
+Two planned high-value mutations from the previous roadmap were also completed.
 
 1. Pipeline skip mutation
 
-   Candidate:
+Production behavior:
 
-       run_pipeline()
-       continue -> return
+    if not stages[stage.key]:
+        log skipped stage
+        continue
 
-   Contract at risk:
+Mutation:
 
-       a disabled stage is skipped
-       -> later enabled stages must still execute
+    continue
+    -> return
 
-   Existing pipeline tests should already contain useful evidence because they
-   verify consecutive skips and reaching an enabled final stage.
+Existing test:
 
-   Learning value:
+    only product_parser enabled
+    all earlier stages disabled
+    -> product_parser must still run
 
-       confirm that an application-level orchestration contract really kills a
-       control-flow mutation already reasoned about conceptually
+Expected shared state:
 
-2. Product-parser recovery mutation
+    ['product_parser']
 
-   Candidate mutations in the transactional parser workflow:
+Mutated result:
 
-       remove rollback()
-       or
-       change parsing_failed recovery to another status
-       or
-       remove the recovery commit
+    []
 
-   Contract at risk:
+The mutant was killed.
 
-       failed completion transaction
-       -> rollback incomplete product updates
-       -> record parsing_failed in a recovery transaction
+Protected contract:
 
-   Learning value:
+    a disabled pipeline stage is skipped
+    -> pipeline iteration continues
+    -> later enabled stages still execute
 
-       apply mutation testing to failure recovery and atomicity, not only the
-       scraper happy path
+This is stronger than merely proving that a disabled stage itself does not run.
+It protects orchestration continuation.
 
-3. Job-claim commit mutation
+2. Product-parser rollback mutation
 
-   Candidate:
+Failure scenario:
 
-       get_pending_product_url()
-       remove the commit after pending -> fetching
+    update_product_data() succeeds
+    -> update_parse_status(parsed_succeeded) fails
+    -> rollback incomplete transaction
+    -> recovery marks parsing_failed
+    -> recovery transaction commits
 
-   Contract question:
+Mutation:
 
-       after a product is claimed, should another connection observe fetching
-       before scraping begins?
+    remove db['conn'].rollback()
 
-   This is a narrow reuse of the two-connection technique and also prepares for
-   the later concurrency topic. It is worth doing only if that visibility is
-   confirmed as an intentional job-ownership contract.
+Expected final database evidence:
 
-4. One narrow automated mutation run
+    (None, 'parsing_failed')
 
-   Scope the first automated run to one small production area such as:
+where the product field remains at its original value because the partial product
+update must be rolled back.
 
-       crawler_product_scraper.py
-       or
-       main.py / run_pipeline()
+Mutated result retained the product update while also recording parsing_failed.
 
-   Do not begin with the whole project.
+The test therefore failed and killed the mutant.
 
-   The exercise should introduce:
+Protected contract:
 
-       generated mutants
-       mutation score
-       survivor inspection
-       equivalent-mutant reasoning
-       prioritizing important survivors over maximizing the score
+    if completion fails after product data has been changed but before the
+    successful parse transition completes,
+    -> partial product-data changes are rolled back
+    -> recovery state parsing_failed is committed
 
-   The useful output is not merely a percentage. For each survivor, ask:
+This reinforced the earlier transaction lesson:
 
-       Does this mutation change a real crawler contract?
-       If yes, what evidence is missing?
-       If no meaningful input can distinguish it, is it equivalent?
-       Would strengthening this test improve confidence or only couple the test
-       to implementation details?
+    a later commit commits all still-pending changes in the current transaction
 
-B. Then move to consumer-driven site-adapter contracts
+so recovery code can accidentally make an earlier partial update durable if the
+rollback boundary is missing.
 
-The current crawler snapshot contains concrete candidates already anticipated in
-sections 102 and 106.
+
+**============================================================**
+120. AUTOMATED MUTATION TOOL WORKFLOW
+**============================================================**
+
+The automated exercise introduced the mechanics of a real mutation tool rather
+than only mutation theory.
+
+Working model:
+
+    configuration
+        -> choose production scope
+        -> choose test command
+        -> choose timeout/execution settings
+
+    baseline
+        -> run tests against unmutated code through the mutation tool
+        -> confirm the tool can execute the configured suite
+
+    init
+        -> scan the target source
+        -> generate candidate mutation jobs
+        -> store them in a session database
+
+    exec
+        -> take one pending job
+        -> temporarily apply mutation
+        -> run configured tests
+        -> record outcome
+        -> restore source
+        -> continue
+
+    report
+        -> inspect killed/survived/etc.
+        -> inspect actual mutation diffs
+
+The source file being restored after execution is intentional. The session
+database stores the mutation descriptions and outcomes; developers do not need to
+manually create every mutant for normal automated mutation testing.
+
+Manual mutation remains useful when reproducing one survivor for study.
+
+The generated operator list also taught that mutation tools are syntax-driven.
+
+For example, Python union type syntax:
+
+    str | None
+
+contains the `|` binary operator syntactically. The mutation engine therefore
+generated transformations involving arithmetic or bitwise replacements that are
+not meaningful domain defects.
+
+Some of these fail immediately at import or collection.
+
+This is why mutation output must be interpreted:
+
+    generated mutant
+        !=
+    meaningful possible bug
+
+Tool/execution-problem outcomes also should not be treated as equivalent to a
+meaningful killed or surviving behavioral mutant.
+
+The value of an automated mutation tool is:
+
+    systematically challenge assumptions the developer did not manually choose
+
+not:
+
+    accept every generated mutation as an equally important requirement.
+
+
+**============================================================**
+121. MUTATION SCORE, SURVIVOR PRIORITY, AND STOPPING RULES
+**============================================================**
+
+The first automated run produced:
+
+    total jobs: 87
+    complete: 87
+    surviving mutants: 33
+    survival rate: 37.93%
+
+The percentage is a useful summary but not a direct measure of software quality.
+
+A high-value survivor changes an important crawler contract.
+
+Example:
+
+    no-URL continue -> break
+    -> later products may never be processed
+
+A lower-value survivor may alter a secondary operational choice.
+
+Example:
+
+    random.uniform(1, 5)
+    -> random.uniform(0, 5)
+
+Whether this deserves a new test depends on whether the exact lower delay bound
+is an important contract.
+
+Refined classification questions:
+
+    1. Does the mutant change externally meaningful crawler behavior?
+
+    2. Is that behavior already protected through another observation point?
+
+    3. Does the survivor expose ambiguous or insufficient evidence?
+
+    4. Is the mutant equivalent for all meaningful inputs?
+
+    5. Is the behavior intentionally left flexible?
+
+    6. Would killing it improve reliability, or merely couple the test to one
+       implementation choice?
+
+A survivor therefore has at least four possible dispositions:
+
+    meaningful gap
+        -> add or strengthen a test
+
+    ambiguous evidence
+        -> improve the test boundary or evidence
+
+    equivalent mutant
+        -> no test can meaningfully distinguish it
+
+    unimportant/implementation-flexibility mutant
+        -> intentionally leave it alive
+
+The objective is not:
+
+    mutation score -> 100%
+
+The objective is:
+
+    important contracts -> discriminating evidence
+
+A fresh mutation session should be generated after meaningful production
+refactoring. The previous session describes mutation locations in the previous
+source structure and can become stale.
+
+
+**============================================================**
+122. GIT AS A SAFETY BOUNDARY FOR TESTING EXPERIMENTS
+**============================================================**
+
+A Git repository was established before the automated mutation run.
+
+The basic sequence learned was:
+
+    git init
+        -> create local repository metadata
+
+    git add .
+        -> stage the current project state for the next commit
+
+    git commit -m "..."
+        -> record the staged snapshot in repository history
+
+The staging area was distinguished from repository history:
+
+    working directory
+        -> git add
+    staging area
+        -> git commit
+    committed history
+
+The command-line syntax was also clarified:
+
+    -m
+        -> a short command-line option
+
+    "multi word text"
+        -> quotation marks make the text one shell argument
+
+For mutation/refactoring experiments, the useful engineering practice is:
+
+    establish known-green code
+    -> commit it
+    -> perform risky or automated transformations
+    -> use git status / git diff to see unintended changes
+
+Git is not part of mutation testing itself. It is a useful independent safety
+boundary when tools or manual exercises deliberately modify production source.
+
+
+**============================================================**
+123. REVISED CONCRETE FOLLOW-UPS FROM THE CURRENT CRAWLER
+**============================================================**
+
+A. Close mutation testing without turning it into score optimization
+
+1. Restore/confirm the current refactored source and full relevant scraper tests.
+
+2. Establish a green pytest baseline.
+
+3. Generate a fresh mutation session from the current source rather than reusing
+   the old 87-job session.
+
+4. Inspect only one or two high-value survivors.
+
+   Prefer:
+       control flow
+       database state
+       file/state consistency
+       failure recovery
+       orchestration
+
+   Deprioritize:
+       arbitrary timing-bound changes
+       type-annotation mutation noise
+       mutations that only force import-time failure
+
+5. If a clear equivalent mutant appears, classify it explicitly.
+
+   Do not extend the phase merely to manufacture an equivalent-mutant example.
+
+6. Stop mutation testing after this short fresh run.
+
+B. Begin consumer-driven site-adapter contracts
+
+The uploaded crawler snapshot still contains strong candidates.
 
 1. Search-parser product contract
 
-   Consumer expectation:
+Consumer:
 
-       product_extraction(soup)
-       -> iterable collection
-       -> each product inserted into ProductPages has a usable "link"
+    crawler_search_html_parser
 
-   Candidate discrepancy:
+Consumes:
 
-       Amazon.product_extraction() currently constructs product dictionaries
-       without a "link" field, while downstream insertion expects one.
+    specific_site_config.product_extraction(soup)
+
+Required behavior:
+
+    result is iterable
+    each product passed to ProductPages insertion provides a usable "link"
+
+Current candidate discrepancy in the uploaded crawler:
+
+    Amazon.product_extraction()
+
+builds dictionaries containing:
+
+    name
+    currency
+    price
+
+but no "link".
+
+This is a high-value first contract-test candidate because it can expose a real
+consumer/provider incompatibility.
 
 2. Product-scraper selector contract
 
-   Consumer expectation:
+Consumer:
 
-       site adapter participating in product scraping
-       -> provides wait_selector
+    scrape_product_urls()
 
-   Candidate discrepancy:
+reads:
 
-       verify Amazon and MercadoLibre against the exact member consumed by
-       scrape_product_urls(). Do not rename or weaken the contract merely to make
-       all adapters pass; first decide whether those adapters are intended to
-       participate in that stage.
+    specific_site_config.wait_selector
+
+Current uploaded snapshot:
+
+    BooksToScrape defines wait_selector
+
+while Amazon and MercadoLibre should be checked against this exact capability.
+
+Important design question:
+
+    Are all registered adapters intended to participate in product scraping?
+
+If yes:
+    wait_selector is a shared consumer requirement.
+
+If no:
+    the architecture may need narrower capability interfaces instead of forcing
+    every registered site class to provide every member.
 
 3. Individual-product parser contract
 
-   Consumer expectation:
+Consumer:
 
-       individual_product_data_extraction(soup)
-       -> dictionary containing every field read by update_product_data()
-       -> images supports images[0]
+    crawler_product_html_parser
 
-   Candidate discrepancy:
+calls:
 
-       verify which registered adapters actually provide this capability and
-       whether the capability should be shared or separated into a narrower
-       interface.
+    specific_site_config.individual_product_data_extraction(soup)
 
-4. Empty extraction contract
+and downstream database update logic expects a product dictionary containing the
+fields it reads, including a usable images collection for images[0].
 
-   Candidate:
+Current uploaded snapshot:
 
-       BooksToScrape.product_extraction() may return None when no containers are
-       found
+    BooksToScrape provides individual_product_data_extraction
+    MercadoLibre provides individual_product_data_extraction
+    Amazon does not show the same capability
 
-   Consumer behavior:
+This is a useful contract candidate because it connects testing directly to
+interface segregation and substitutability.
 
-       search parser treats extraction as a collection and may immediately use
-       collection operations
+4. Empty search extraction contract
 
-   Contract question:
+Current BooksToScrape.product_extraction():
 
-       should "no products" mean [] rather than None?
+    if no containers:
+        return None implicitly
 
-These are good contract-test targets because failures can reveal architectural
-inconsistency rather than another isolated branch bug.
+But the search-parser consumer treats extraction as a collection.
 
-C. Preserve the remaining roadmap after contracts
+Contract question:
 
-After consumer-driven contracts, continue with the existing sequence:
+    Should "no products found" be represented by []
+
+rather than:
+
+    None
+
+This is another strong candidate because it tests semantic compatibility between
+provider output and consumer assumptions.
+
+C. Preserve the advanced roadmap after adapter contracts
+
+After consumer-driven contracts:
 
     model-based/stateful lifecycle testing
-    -> controlled local end-to-end slice
+    -> one controlled local end-to-end slice
     -> deterministic concurrency and atomic job claiming
     -> exception safety and resource ownership
     -> optional metamorphic parser testing
 
-The current crawler remains especially suitable for later concurrency work
-because job claiming already uses a real SQLite lifecycle and the two-connection
-fixture introduced during mutation testing is a useful conceptual bridge.
+The two-connection SQLite work remains a useful bridge into later deterministic
+concurrency testing.
 
 
 **============================================================**
-118. UPDATED ADVANCED LEARNING ROADMAP AFTER TODAY'S PRACTICE
+124. UPDATED ADVANCED LEARNING ROADMAP AFTER AUTOMATED MUTATION PRACTICE
 **============================================================**
 
 Immediate next step:
 
-    complete mutation testing without overextending it
+    perform one short fresh mutation run against the current refactored scraper,
+    inspect at most one or two worthwhile survivors, then close the mutation phase
 
 Recommended sequence:
 
-    1. Run 2-3 additional high-value manual mutations:
-       - pipeline continue -> return
-       - one parser rollback/recovery mutation
-       - optional job-claim commit mutation if its contract is intentional
+    1. Fresh narrow mutation run on current crawler_product_scraper.py.
 
-    2. Run one automated mutation session over a narrow module.
+    2. Classify one or two survivors:
+       - meaningful gap;
+       - ambiguous evidence;
+       - equivalent mutant if a clear example appears;
+       - intentionally unimportant implementation choice.
 
-    3. Learn to interpret:
-       - mutation score;
-       - killed versus surviving mutants at scale;
-       - equivalent mutants;
-       - meaningful survivor versus implementation-only survivor.
+    3. Stop mutation work.
 
-    4. Stop mutation work once these concepts are clear.
+    4. Begin consumer-driven contract tests across site adapters.
 
-    5. Begin consumer-driven contracts across site adapters.
+       First recommended candidate:
+           product_extraction(soup)
+           -> iterable
+           -> inserted products provide usable "link"
 
-    6. Continue with model-based/stateful property testing.
+       Current reason:
+           Amazon appears incompatible with the consumer requirement.
 
-    7. Build one controlled local end-to-end slice.
+    5. Test product-scraper adapter capability:
+           wait_selector
 
-    8. Study deterministic concurrency and atomic job claiming.
+    6. Test individual-product parser adapter capability:
+           individual_product_data_extraction(soup)
+           -> required fields and images[0] compatibility
 
-    9. Study exception safety and resource ownership.
+    7. Resolve the empty-extraction semantic contract:
+           [] versus None
 
-    10. Use metamorphic parser testing only as an optional later topic.
+    8. Move to model-based/stateful property testing of crawler job lifecycles.
+
+    9. Build one controlled local end-to-end slice.
+
+    10. Study deterministic concurrency and atomic job claiming.
+
+    11. Study exception safety and resource ownership.
+
+    12. Use metamorphic parser testing only as an optional later topic.
 
 The learning criterion remains:
 
@@ -5628,5 +6207,4 @@ The learning criterion remains:
 
 not:
 
-    accumulate tests or tools because they exist
-
+    accumulate tests, mocks, branches, or mutation-score points because they exist
