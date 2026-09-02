@@ -9,7 +9,7 @@ from playwright.sync_api import Page
 
 from utilities.database import db_initialization, db_cur_and_conn_closer, insert_url, update_url_status, insert_product_url
 from utilities.utils import process_single_url, load_page, extract_html, perform_scroll, human_scroll
-from crawler.crawler_product_scraper import get_pending_product_url, scrape_product_urls, process_single_url
+from crawler.crawler_product_scraper import get_pending_product_url, scrape_product_urls, process_single_url, occasional_long_pause_to_simulate_browsing
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger("test_logger")
@@ -401,19 +401,37 @@ def test_scrape_urls_special_wait_time_is_triggered(tmp_db, tmp_paths_dict):
 
     insert_product_url(tmp_db, {'link': 'product.com'})
 
-    with (patch('crawler.crawler_product_scraper.countdown_sleep_timer') as mock_countdown_sleep_timer,
-    patch('crawler.crawler_product_scraper.random.uniform') as mock_random_uniform):
+    with (patch('crawler.crawler_product_scraper.countdown_sleep_timer') as mock_countdown_sleep_timer, patch('crawler.crawler_product_scraper.occasional_long_pause_to_simulate_browsing') as fake_occasional_pause, patch('crawler.crawler_product_scraper.random.uniform') as mock_random_uniform):
 
         mock_random_uniform.return_value = 6
 
         scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site_config, logger, error_logger, page_counter=5, fetch_html=fake_html_fetching)
 
-    mock_countdown_sleep_timer.assert_any_call(6)
+    assert fake_occasional_pause.call_count == 1
 
     html_path = tmp_paths_dict["output_dir"] / "product_5.html"
 
     assert html_path.exists()
     assert html_path.read_text() == 'html_content'
+
+def test_long_pause_to_simulate_browsing():
+
+    """
+    If page_counter is not divisible by 5, the special wait must not occur.
+    """
+    with patch('crawler.crawler_product_scraper.random.uniform') as mock_random_uniform, patch('crawler.crawler_product_scraper.countdown_sleep_timer') as mock_sleep:
+
+        mock_random_uniform.return_value = 1
+
+        occasional_long_pause_to_simulate_browsing(5)
+
+        occasional_long_pause_to_simulate_browsing(4)
+
+    not_expected = [call(1), call(1)]
+    expected = [call(1)]
+
+    assert mock_sleep.call_args_list != not_expected
+    assert mock_sleep.call_args_list == expected
 
 def test_scrape_urls_special_wait_time_is_not_triggered(tmp_db, tmp_paths_dict):
 
