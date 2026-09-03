@@ -1,3 +1,0 @@
-now please read my Testing_Learning.md document and create an updated copy with the new concepts i have learned today. 
-
-follow the format of my plan and propose good follow ups to continue learning based on the plan and my crawler code if you find adequate candidates.
