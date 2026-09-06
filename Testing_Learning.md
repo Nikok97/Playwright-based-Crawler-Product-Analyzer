@@ -4695,7 +4695,7 @@ Conclusion:
 
 
 **============================================================**
-105. MUTATION TESTING AND TEST-SUITE ADEQUACY — NOW PRACTICED MANUALLY AND AUTOMATICALLY
+105. MUTATION TESTING AND TEST-SUITE ADEQUACY — PHASE COMPLETE
 **============================================================**
 
 Traditional execution asks:
@@ -4706,162 +4706,334 @@ Mutation testing asks:
 
     If the program were subtly wrong, would the test suite notice?
 
-A mutation tool or deliberate manual mutation makes small production changes,
-for example:
+The crawler mutation phase was practiced manually and with Cosmic Ray.
 
-    replace continue with return or break
-    replace fetched with failed
-    remove a commit
-    remove rollback
+Manual mutations covered meaningful crawler contracts such as:
+
     remove page_counter += 1
-    reverse a condition
-    alter a numeric boundary
+    change fetched to failed
+    remove commit()
+    replace continue with return in pipeline orchestration
+    remove rollback() from parser recovery
 
-Then the suite is run.
+The automated phase then ran Cosmic Ray against crawler_product_scraper.py.
+The first automated session generated 87 jobs. All jobs completed and the report
+showed 33 survivors, a survival rate of 37.93%.
 
-Outcomes:
-
-    killed mutation
-        -> at least one test failed
-        -> the suite detected the introduced defect
-
-    surviving mutation
-        -> all tests still passed
-        -> the current evidence did not distinguish the mutant from the original
-        -> this may indicate a meaningful gap, weak/ambiguous evidence, an
-           intentionally unprotected behavior, or an equivalent mutant
-
-The strength check remains:
-
-    Could the test still pass if the behavior it claims to protect were removed
-    or subtly changed?
-
-Mutation testing turns that question into an experiment.
-
-The manual phase established important domain-level examples around:
-
-- page-counter progression;
-- database final status;
-- transaction durability;
-- pipeline skip/continue behavior;
-- rollback and partial database updates.
-
-The automated phase then extended this with a real mutation tool over the
-product-scraper module.
-
-Practiced directly:
-
-- establishing a green baseline before mutation execution;
-- configuring a deliberately narrow mutation scope;
-- generating mutations automatically rather than choosing them all by hand;
-- storing mutation jobs and outcomes in a session database;
-- running generated mutants against the configured pytest command;
-- reading killed, survived, timeout, and tool/execution-problem outcomes;
-- inspecting actual mutation diffs rather than reasoning only from operator names;
-- interpreting a survival-rate summary without treating it as a quality grade;
-- recognizing that mutation operators are syntax-driven rather than domain-aware;
-- identifying noisy mutations generated from type-hint syntax such as `str | None`;
-- prioritizing survivors that change real crawler behavior;
-- refusing to add tests merely to improve the mutation percentage;
-- recognizing when a source refactor makes an old mutation session stale.
-
-The first automated run against crawler_product_scraper.py generated 87 jobs.
-The initial report completed all 87 and showed 33 surviving mutants, a survival
-rate of 37.93%.
-
-That number was useful as a summary, but not as the primary learning result.
-
+The percentage was treated as a diagnostic summary rather than a quality target.
 The important work was survivor classification.
 
-Two especially useful survivors were investigated:
+Two especially useful automated survivors were investigated:
 
-1. product_url is None:
+1. No-product-URL branch:
+
        continue
        -> break
 
-   This exposed a real missing continuation contract.
+   The old test used only one no-URL row, so continue and break were
+   observationally equivalent in that scenario. A focused continuation test with
+   a later valid product killed the mutant.
 
-2. special-wait condition:
+2. Special-wait condition:
+
        page_counter != 0
        -> page_counter == 0
 
-   This exposed ambiguous interaction evidence: another wait branch could satisfy
-   the same mock assertion even when the intended branch never executed.
+   The old assertion used assert_any_call(6). Because another wait branch could
+   independently produce countdown_sleep_timer(6), the evidence was compatible
+   with the intended branch without uniquely proving it. Refactoring the special
+   wait behind a helper created a better test boundary and a focused helper test
+   killed the mutant.
 
 Important mutation-testing conclusions now practiced:
 
 - a surviving mutant is a question, not automatically a defect;
-- a killed mutant is evidence that some test distinguishes the changed behavior,
-  not proof that every semantic aspect of the mutation is directly tested;
-- similar failure branches may require separate continuation contracts;
-- a test can execute the right line and still fail to distinguish wrong behavior;
-- an interaction assertion may be correct yet non-discriminating if another path
-  can produce the same call;
-- mutation testing can reveal a need for a better test boundary or even a small
-  production refactor;
-- after refactoring source structure, regenerate mutants instead of optimizing
-  against an obsolete session;
-- mutation score should guide investigation, not become a target to maximize.
+- a killed mutant proves that some test distinguishes the changed behavior, not
+  that every semantic aspect of the mutation is directly tested;
+- mutation testing can expose missing scenarios, ambiguous evidence, or a poor
+  test boundary;
+- syntax-driven mutation tools generate noise, including meaningless mutations of
+  type-hint operators;
+- an interaction assertion can be technically valid yet non-discriminating;
+- mutation score should guide investigation, not become a target to maximize;
+- source refactoring can make an old mutation session stale;
+- tests should not be added merely to kill low-value mutants.
 
-Still useful before closing the mutation topic completely:
+The automated session was sufficient for the learning objective because it added
+what manual mutation testing could not:
 
-- run one fresh automated session against the current refactored source;
-- inspect only one or two remaining high-value survivors;
-- if available, classify one convincing equivalent or intentionally unimportant
-  mutant through a concrete example.
+    automatic mutant generation
+    -> many mutants at once
+    -> survivor reports
+    -> classification at scale
+    -> tool noise and stale-session reasoning
 
-After that, the mutation-testing phase should stop and the roadmap should move
-to consumer-driven adapter contracts.
-
+No additional Cosmic Ray run is currently required. Mutation testing can be
+revisited later when there is a specific regression-risk question, but it is no
+longer the active learning phase.
 
 **============================================================**
-106. CONSUMER-DRIVEN SITE-ADAPTER CONTRACTS
+106. CONSUMER-DRIVEN SITE-ADAPTER CONTRACTS — NOW PRACTICED
 **============================================================**
 
-After mutation testing, continue with the consumer-driven contract work defined
-in section 102.
+The contract-testing phase moved from architectural planning to direct tests
+against the real site adapters.
 
-This should not become an attribute-completeness checklist.
-
-The central method is:
+The central method practiced was:
 
     identify a real consumer
-    -> state the promise it requires from its adapter
-    -> run the same behavioral contract against participating providers
+    -> inspect what it actually reads or calls
+    -> state only the promise the consumer requires
+    -> apply that same promise to participating providers
+    -> treat failures as architectural evidence rather than weakening the test
 
-Examples already present in the crawler include:
+This differs from starting with a provider and asking what all of its methods do.
+The consumer determines the relevant contract.
 
-    search parser consumes product_extraction(soup)
-        -> result must be iterable
-        -> each inserted product must provide a usable link
+A. Search-parser product_extraction() contract
 
-    product scraper consumes wait_selector
-        -> adapters participating in product scraping must provide it
+The search parser ultimately consumes product dictionaries through a "link" key.
+The first contract test used BooksToScrape as the controlled reference provider,
+then applied the same assertions to MercadoLibre and Amazon.
 
-    product parser consumes individual_product_data_extraction(soup)
-        -> returned dictionaries must contain every field read by
-           update_product_data()
-        -> images must support images[0]
+The successful-extraction contract practiced was approximately:
 
-    seed stage consumes pagination capabilities
-        -> algorithmic and dynamic adapters have different required operations
+    product_extraction(soup)
+        -> returns the agreed collection type for a successful extraction
+        -> extracted product is a dictionary
+        -> product dictionary contains "link"
 
-The current WebsiteToScrape abstract base class declares only part of this real
-interface. Contract tests can therefore reveal architectural assumptions that
-ordinary unit tests of one adapter do not reveal.
+An important correction was made during the exercise:
 
-New concepts:
+    "link" exists
+    !=
+    "link" is always a usable URL
 
-- consumer-driven contracts;
-- provider verification;
-- structural versus behavioral compatibility;
-- substitutability;
-- parametrized contract suites;
-- interface segregation;
-- capability-based Protocols or abstract interfaces;
-- using contract failures to guide architecture rather than weakening tests to
-  make all providers pass.
+The current crawler explicitly tolerates:
 
+    {"link": None}
+
+because the downstream product scraper has a failed_unfetchable path for product
+rows whose URL is None. Therefore the shared contract should not silently become
+stronger than the real application behavior.
+
+Another distinction was clarified:
+
+    provider-specific parsing test
+        -> may assert the exact URL extracted from one BooksToScrape page
+
+    shared contract test
+        -> asserts only the properties the consumer depends on
+
+The contract test used small provider-specific HTML inputs while keeping the
+contract assertions identical. This made the separation visible:
+
+    different HTML structure
+    + different adapter implementation
+    -> same consumer-facing promise
+
+Observed provider results:
+
+    BooksToScrape   -> PASS
+    MercadoLibre    -> PASS
+    Amazon          -> XFAIL because its product dictionaries currently omit
+                       the "link" key
+
+The empty/no-container case remains intentionally separate from the successful
+contract. BooksToScrape currently returns None when its expected product
+containers are absent. It has not yet been decided whether:
+
+    None -> extraction structure unavailable / extraction failure
+    []   -> valid extraction with zero products
+
+should remain distinct semantics or be unified.
+
+B. Parametrized provider verification
+
+pytest.mark.parametrize() was used to apply one contract to several providers.
+
+A clearer syntax for multiple parameter names was learned:
+
+    @pytest.mark.parametrize(
+        ("adapter_class", "test_html"),
+        [
+            (BooksToScrape, books_html),
+            (MercadoLibre, ml_html),
+            ...
+        ],
+    )
+
+The first argument may be a comma-separated string, but a tuple of names can make
+the positional structure more explicit.
+
+The conceptual mapping is:
+
+    ("adapter_class", "test_html")
+              ^              ^
+              |              |
+        (BooksToScrape, books_html)
+
+Each row runs the same test again with new values.
+
+A distinction was also consolidated:
+
+    fixture
+        -> value supplied by pytest's fixture system
+
+    parametrized argument
+        -> value supplied by one row of @pytest.mark.parametrize
+
+They can appear together in the same test function, but they are not the same
+mechanism.
+
+Parametrization is per test. A later contract that needs only adapter_class does
+not need to reuse the earlier (adapter_class, test_html) pair.
+
+C. isinstance() and runtime type evidence
+
+The contract exercise introduced isinstance():
+
+    isinstance(object, expected_type)
+
+Examples:
+
+    isinstance(result, list)
+    isinstance(product, dict)
+
+A failed attempt clarified an important Python distinction:
+
+    isinstance(result, list[dict])
+
+raises:
+
+    TypeError: isinstance() argument 2 cannot be a parameterized generic
+
+because:
+
+    list
+        -> runtime class usable by isinstance()
+
+    list[dict]
+        -> parameterized generic primarily used for static type description
+
+Therefore a runtime test decomposes list[dict] into separate evidence:
+
+    result is a list
+    + each relevant element is a dict
+
+The existing all([]) / vacuous-truth lesson still applies if all elements are
+checked with all(...). A successful fixture should separately prove that at least
+one product was actually extracted when non-empty evidence is required.
+
+D. xfail and XPASS for known provider incompatibilities
+
+pytest.mark.xfail was introduced through incomplete adapters.
+
+Mental model:
+
+    XFAIL
+        -> this real test still runs
+        -> current failure is known and documented
+
+    XPASS
+        -> the case unexpectedly satisfied the contract
+        -> the old xfail may now be stale and removable
+
+A parametrized case can carry its own expected-failure mark:
+
+    pytest.param(
+        Amazon,
+        amazon_html,
+        marks=pytest.mark.xfail(reason="known contract gap"),
+    )
+
+This differs from pytest.raises():
+
+    pytest.raises(...)
+        -> asserts that production behavior should raise a specific exception
+
+    xfail
+        -> records that the whole current test case is expected not to satisfy its
+           assertion yet
+
+It also differs from skipping:
+
+    skip
+        -> do not execute the test
+
+    xfail
+        -> execute it and observe whether the known failure still exists
+
+The useful analogy developed was an executable post-it attached to a known
+incompatibility.
+
+E. Product-scraper wait_selector capability contract
+
+The product scraper reads:
+
+    specific_site_config.wait_selector
+
+before passing the value into its fetch dependency. This creates a capability
+contract:
+
+    any adapter actually participating in the product-scraping stage
+    -> must expose wait_selector
+
+This is narrower than:
+
+    every site adapter in the project must expose wait_selector
+
+because the current adapters are not all complete implementations of every
+pipeline stage.
+
+The first version of the test called process_single_url() and contained no explicit
+assertion. That test could still fail through an uncaught AttributeError, but it
+also dragged unrelated behavior into the test boundary.
+
+The test was refined to direct structural evidence:
+
+    assert hasattr(adapter, "wait_selector")
+
+This introduced hasattr() and reinforced the minimum-sufficient-evidence rule:
+
+    if the contract is attribute existence,
+    test attribute existence directly
+
+rather than executing a whole downstream workflow that can fail for unrelated
+reasons.
+
+Observed provider results:
+
+    BooksToScrape   -> PASS
+    MercadoLibre    -> XFAIL: wait_selector currently absent
+    Amazon          -> XFAIL: wait_selector currently absent
+
+This exposed a capability/interface question without forcing unfinished adapters
+to implement every stage immediately.
+
+F. Contract tests as executable architecture checks
+
+The most important conceptual result of the phase is that contract tests rapidly
+surface explicit and implicit architectural assumptions.
+
+For example:
+
+    individual_product["link"]
+
+silently implies a provider promise even if no formal Protocol or abstract method
+states it.
+
+The shared test turns that hidden dependency into executable evidence.
+
+Repeated provider failures can therefore motivate later architectural choices such
+as:
+
+    narrower capability interfaces
+    Protocols
+    abstract base classes
+    explicit declarations of which pipeline stages an adapter supports
+
+The tests should clarify those boundaries before the architecture is formalized.
 
 **============================================================**
 107. MODEL-BASED AND STATEFUL PROPERTY TESTING
@@ -5069,35 +5241,30 @@ lower priority than mutation, contracts, and lifecycle modeling.
 
 
 **============================================================**
-112. REVISED ADVANCED LEARNING ROADMAP
+112. HISTORICAL ADVANCED ROADMAP — SUPERSEDED BY CURRENT STATUS
 **============================================================**
 
-Recommended order:
+At this earlier point in the learning process, the recommended sequence was:
 
-    1. Finish the mutation-testing phase:
-       a few high-value crawler mutations + one narrow automated mutation run
-       + mutation-score/equivalent-mutant review
-    2. Consumer-driven contracts across site adapters
-    3. Model-based/stateful property testing of job lifecycles
-    4. One controlled local end-to-end slice
-    5. Deterministic concurrency and atomic job claiming
-    6. Exception safety and resource ownership
-    7. Optional metamorphic parser testing
+    mutation testing
+    -> consumer-driven contracts
+    -> model-based/stateful property testing
+    -> controlled local end-to-end slice
+    -> deterministic concurrency
+    -> exception safety/resource ownership
+    -> optional metamorphic parser testing
 
-The progression is designed around new evidence types:
+That overall progression remains useful, but the status has changed:
 
-    passing existing tests
-    -> challenge them with mutations
-    -> verify replaceable components through shared contracts
-    -> generate state histories from an independent model
-    -> verify one real vertical slice
-    -> force concurrency interleavings
-    -> prove cleanup under failure
-    -> test semantic equivalence across transformed inputs
+    mutation testing
+        -> now complete for the current learning goals
 
-The short slugify property exercise is optional and should be treated only as a
-Hypothesis warm-up if the library's mechanics are unfamiliar.
+    consumer-driven contracts
+        -> now practiced through product_extraction and wait_selector contracts
+        -> one final individual-product parser contract is in progress
 
+The current actionable roadmap is recorded in sections 123-124. This section is
+kept as a historical record of how the advanced sequence was originally planned.
 
 **============================================================**
 113. MANUAL MUTATION TESTING: REAL CRAWLER RESULTS
@@ -6003,208 +6170,502 @@ boundary when tools or manual exercises deliberately modify production source.
 123. REVISED CONCRETE FOLLOW-UPS FROM THE CURRENT CRAWLER
 **============================================================**
 
-A. Close mutation testing without turning it into score optimization
+A. Finish one final contract exercise already in progress
 
-1. Restore/confirm the current refactored source and full relevant scraper tests.
+Current consumer:
 
-2. Establish a green pytest baseline.
+    crawler_product_html_parser
 
-3. Generate a fresh mutation session from the current source rather than reusing
-   the old 87-job session.
+It calls:
 
-4. Inspect only one or two high-value survivors.
+    specific_site_config.individual_product_data_extraction(soup)
 
-   Prefer:
-       control flow
-       database state
-       file/state consistency
-       failure recovery
-       orchestration
+The parser accepts a falsey extraction as parse failure. If extraction succeeds,
+update_product_data() reads:
 
-   Deprioritize:
-       arbitrary timing-bound changes
-       type-annotation mutation noise
-       mutations that only force import-time failure
+    product["slug"]
+    product["currency"]
+    product["price"]
+    product["product_code"]
+    product["reviews"]
+    product["images"][0]
 
-5. If a clear equivalent mutant appears, classify it explicitly.
+Current provider situation in dynamic_crawler(6).zip:
 
-   Do not extend the phase merely to manufacture an equivalent-mutant example.
+    BooksToScrape
+        -> provides individual_product_data_extraction()
 
-6. Stop mutation testing after this short fresh run.
+    MercadoLibre
+        -> provides individual_product_data_extraction()
 
-B. Begin consumer-driven site-adapter contracts
+    Amazon
+        -> does not provide that capability
 
-The uploaded crawler snapshot still contains strong candidates.
+This test is NOT YET COMPLETED.
 
-1. Search-parser product contract
+The useful reasoning questions are:
 
-Consumer:
+1. Method capability
 
-    crawler_search_html_parser
+       Which adapters claim to participate in individual-product parsing?
+       Must they expose individual_product_data_extraction()?
 
-Consumes:
+2. Successful return shape
 
-    specific_site_config.product_extraction(soup)
+       If the method reports successful extraction, what keys must the returned
+       object provide because update_product_data() reads them directly?
 
-Required behavior:
+3. images[0]
 
-    result is iterable
-    each product passed to ProductPages insertion provides a usable "link"
+       The minimum consumer requirement is not automatically "images must be a
+       list". The consumer specifically requires an images value that supports
+       index 0 and has an element there.
 
-Current candidate discrepancy in the uploaded crawler:
+4. Falsey return
 
-    Amazon.product_extraction()
+       Because run_crawler_product_html_parser() checks:
 
-builds dictionaries containing:
+           if not product:
 
-    name
-    currency
-    price
+       a falsey extraction is already an accepted failure signal. The contract for
+       a successful parse should therefore be distinguished from the failure
+       signal.
 
-but no "link".
+Recommended exercise:
 
-This is a high-value first contract-test candidate because it can expose a real
-consumer/provider incompatibility.
+    derive the contract in plain language
+    -> write one shared test
+    -> verify BooksToScrape and MercadoLibre
+    -> mark Amazon xfail if it is intentionally incomplete
+    -> stop the contract-testing phase after the architectural lesson is clear
 
-2. Product-scraper selector contract
+Do not expand this into a checklist of every adapter attribute.
 
-Consumer:
+B. Optional unresolved design question: None versus []
 
-    scrape_product_urls()
+BooksToScrape.product_extraction() currently returns None when no expected product
+containers are found.
 
-reads:
+Only revisit this now if the application needs a semantic distinction between:
 
-    specific_site_config.wait_selector
+    valid search page with zero products
+    vs
+    extraction structure missing / parser unable to recognize page
 
-Current uploaded snapshot:
+If no current behavior depends on that distinction, it can remain a design note
+rather than another test exercise.
 
-    BooksToScrape defines wait_selector
+C. Move to model-based/stateful property testing
 
-while Amazon and MercadoLibre should be checked against this exact capability.
+After the current parser contract, this is the strongest next learning step because
+it introduces a new kind of evidence rather than another pytest API variation.
 
-Important design question:
+Use the ProductPages lifecycle as the model target.
 
-    Are all registered adapters intended to participate in product scraping?
+A useful first model includes states such as:
 
-If yes:
-    wait_selector is a shared consumer requirement.
+    pending
+    fetching
+    fetched
+    parsing
+    parsed_succeeded
+    parsing_failed
+    failed
+    failed_unfetchable
 
-If no:
-    the architecture may need narrower capability interfaces instead of forcing
-    every registered site class to provide every member.
+with recovery behavior such as:
 
-3. Individual-product parser contract
+    interrupted fetching -> pending
+    stuck parsing -> parse_status reset for later work
+
+The important move is to create an independent model of the expected state, then
+apply actions to both:
+
+    model state
+    real temporary SQLite row
+
+After every action:
+
+    compare model and database
+    assert global invariants
+
+A good learning progression is:
+
+    1. one small deterministic model and hand-chosen action sequence
+    2. then Hypothesis stateful generation / RuleBasedStateMachine
+    3. let Hypothesis generate operation histories and shrink a failing history
+
+This avoids learning Hypothesis syntax before understanding what the independent
+model is supposed to prove.
+
+D. Controlled local end-to-end slice
+
+After stateful testing, build one vertical slice around BooksToScrape.
+
+BooksToScrape remains the appropriate reference provider because it was chosen to
+exercise the crawler without live-site/server-side instability.
+
+Keep real:
+
+    temporary SQLite
+    tmp_path filesystem
+    BeautifulSoup
+    BooksToScrape adapter
+    crawler stage logic
+
+Keep the network/browser boundary controlled or excluded.
+
+Useful slice:
+
+    seed/search page state
+    -> saved search HTML
+    -> product URL insertion
+    -> saved product HTML
+    -> product parsing
+    -> final ProductPages database state
+
+This teaches system-level confidence without making the test depend on the live
+internet.
+
+E. Deterministic concurrency and atomic job claiming
+
+Later, reuse the two-connection SQLite technique already learned during commit
+visibility testing.
+
+Candidate question:
+
+    Can two workers observe and claim the same pending ProductPages row?
+
+This is a natural entry into:
+
+    race conditions
+    atomic claiming
+    transaction isolation
+    controlled interleavings
+
+F. Exception safety and resource ownership
+
+After concurrency, test a small number of composition-root guarantees:
+
+    database connection closes after pipeline failure
+    owned resources close exactly once
+    partial initialization is cleaned up
+    cleanup failures do not silently replace the primary application failure
+
+G. Optional metamorphic parser testing
+
+Only after the higher-priority topics, use HTML transformations that should not
+change parser meaning:
+
+    whitespace changes
+    irrelevant elements
+    unrelated attribute reordering
+    extra non-product containers
+
+Then compare original and transformed extraction results.
+
+**============================================================**
+124. UPDATED ADVANCED LEARNING ROADMAP AFTER CONTRACT PRACTICE
+**============================================================**
+
+Current status:
+
+    mutation testing
+        -> complete for current learning goals
+
+    consumer-driven contracts
+        -> two contracts practiced successfully
+        -> one final individual-product parser contract in progress
+
+Immediate next step:
+
+    finish the individual_product_data_extraction() consumer contract
+    without expanding contract testing into interface-completeness work
+
+Recommended sequence from here:
+
+    1. Complete the current individual-product parser contract:
+           method capability
+           + successful returned fields
+           + images[0] compatibility
+
+    2. Mark incomplete providers with xfail only where that known gap is useful to
+       keep visible.
+
+    3. Treat None versus [] for empty search extraction as an optional design
+       decision, not a mandatory extra test.
+
+    4. Close the consumer-driven contract phase.
+
+    5. Begin model-based/stateful property testing of ProductPages lifecycles.
+       First build a small independent model, then introduce generated stateful
+       histories.
+
+    6. Build one controlled local end-to-end BooksToScrape slice with real SQLite,
+       filesystem, parser logic, and saved/synthetic HTML but no live network
+       dependency.
+
+    7. Study deterministic concurrency and atomic job claiming with two SQLite
+       connections and controlled worker interleavings.
+
+    8. Study exception safety and resource ownership at the composition boundary.
+
+    9. Use metamorphic parser testing only as an optional later robustness topic.
+
+The learning criterion remains:
+
+    each new exercise should introduce a new kind of evidence,
+    failure mode,
+    or design question
+
+not:
+
+    accumulate tests,
+    attributes,
+    mocks,
+    branches,
+    mutation-score points,
+    or pytest syntax because they exist
+
+**============================================================**
+125. CONTRACT TESTS: SHARED PROMISE VS PROVIDER-SPECIFIC BEHAVIOR
+**============================================================**
+
+A distinction now practiced directly is:
+
+    provider-specific test
+        -> asks whether one implementation produces its exact expected result
+
+    contract test
+        -> asks whether an implementation satisfies the promise required by a
+           consumer
+
+Example:
+
+    exact BooksToScrape URL equality
+        -> provider-specific parsing evidence
+
+    result is the agreed collection type
+    product is a dictionary
+    "link" exists
+        -> shared consumer-contract evidence
+
+A contract test can still use BooksToScrape as the provider under test. What makes
+it a contract test is not the name of the provider; it is that the assertions are
+about the shared consumer requirement and can be reused against another provider.
+
+This is why contract tests can act as executable architecture documentation.
+
+
+
+**============================================================**
+126. PARAMETRIZATION, FIXTURES, AND PROVIDER-SPECIFIC INPUT
+**============================================================**
+
+The contract exercise clarified three independent dimensions:
+
+    contract assertions
+        -> shared
+
+    provider implementation
+        -> varies
+
+    provider-specific input HTML
+        -> varies
+
+pytest.mark.parametrize() is useful because it varies the provider/input while
+keeping the contract assertions in one place.
+
+A fixture and a parametrized argument are not interchangeable concepts:
+
+    @pytest.fixture
+        -> reusable setup/data supplied through pytest fixture resolution
+
+    @pytest.mark.parametrize
+        -> multiple explicit cases supplied to one test
+
+A test may use both simultaneously.
+
+Another practical lesson was that parametrizing file paths creates an accidental
+precondition if those files do not actually exist. The contract did not require
+real fixture files. Small synthetic HTML snippets were therefore preferable when
+they were sufficient to trigger each adapter's extraction logic.
+
+General rule:
+
+    do not let test scaffolding invent production requirements
+
+If a full saved HTML page is not part of the behavior being tested, do not create
+one merely because an earlier parametrization example happened to use html_path.
+
+
+
+**============================================================**
+127. XFAIL, XPASS, SKIP, AND PYTEST.RAISES
+**============================================================**
+
+Four outcomes/tools now have distinct meanings:
+
+    ordinary FAIL
+        -> unexpected violation
+
+    XFAIL
+        -> known current violation; test still executes
+
+    XPASS
+        -> the known violation may have disappeared
+
+    SKIP
+        -> test is not executed
+
+pytest.raises() belongs to a different category:
+
+    pytest.raises(ExpectedException)
+        -> the exception itself is the expected production behavior being asserted
+
+xfail instead describes the expected current status of a whole test case.
+
+Useful rule:
+
+    known incomplete provider that should eventually satisfy the contract
+        -> xfail can keep the obligation visible
+
+    provider not participating in that capability at all
+        -> consider excluding it from that contract rather than accumulating
+           permanent xfails
+
+This distinction prevents xfail from becoming a dumping ground for irrelevant
+providers.
+
+
+
+**============================================================**
+128. HASATTR, ISINSTANCE, AND MINIMUM STRUCTURAL EVIDENCE
+**============================================================**
+
+Two Python built-ins became useful for structural contract evidence.
+
+isinstance():
+
+    isinstance(result, list)
+    isinstance(product, dict)
+
+This checks runtime class/subclass relationships.
+
+It cannot directly check a parameterized generic:
+
+    isinstance(result, list[dict])
+        -> TypeError
+
+because list[dict] is a type description, not a runtime class accepted by
+isinstance() as its second argument.
+
+hasattr():
+
+    hasattr(adapter, "wait_selector")
+
+This directly checks whether an object exposes the named attribute.
+
+The wait_selector exercise showed why the narrowest evidence is often strongest:
+
+    contract:
+        adapter must expose wait_selector
+
+    focused evidence:
+        assert hasattr(adapter, "wait_selector")
+
+Calling process_single_url() merely to discover the missing attribute would also
+fail, but it would introduce unrelated Page, Logger, browser-loading, and fetching
+behavior into the diagnosis.
+
+A test can technically pass or fail without an explicit assert because an
+unexpected exception is itself a pytest failure. That does not mean a no-assert
+workflow test is the clearest evidence for a narrow structural contract.
+
+
+
+**============================================================**
+129. TOOLING NOTE: PYTEST IMPORTS VS PYLANCE STATIC RESOLUTION
+**============================================================**
+
+A development-tooling issue clarified that runtime imports and editor static
+analysis can have different search paths.
+
+Observed situation:
+
+    pytest
+        -> tests imported crawler modules successfully
+
+    Pylance
+        -> reported unresolved imports and could not provide reliable Peek/
+           definition navigation
+
+The project uses a src-style import root. Adding the crawler source root to VS
+Code/Pylance analysis paths restored editor navigation without changing the
+working pytest imports.
+
+Useful distinction:
+
+    Python/pytest runtime import resolution
+    !=
+    Pylance static-analysis resolution
+
+An editor error can therefore indicate missing analysis configuration rather than
+a broken runtime import.
+
+
+
+**============================================================**
+130. CURRENT EXERCISE: INDIVIDUAL-PRODUCT PARSER CONTRACT — NOT YET DONE
+**============================================================**
+
+The active exercise at the time of this update is the third and intended final
+contract example.
 
 Consumer:
 
     crawler_product_html_parser
 
-calls:
+Provider operation:
 
-    specific_site_config.individual_product_data_extraction(soup)
+    individual_product_data_extraction(soup)
 
-and downstream database update logic expects a product dictionary containing the
-fields it reads, including a usable images collection for images[0].
+Consumer behavior:
 
-Current uploaded snapshot:
+    product = specific_site_config.individual_product_data_extraction(soup)
 
-    BooksToScrape provides individual_product_data_extraction
-    MercadoLibre provides individual_product_data_extraction
-    Amazon does not show the same capability
+    if not product:
+        -> parsing failure path
 
-This is a useful contract candidate because it connects testing directly to
-interface segregation and substitutability.
+    else:
+        update_product_data(...)
 
-4. Empty search extraction contract
+update_product_data() then reads:
 
-Current BooksToScrape.product_extraction():
+    product["slug"]
+    product["currency"]
+    product["price"]
+    product["product_code"]
+    product["reviews"]
+    product["images"][0]
 
-    if no containers:
-        return None implicitly
+Current adapter capabilities:
 
-But the search-parser consumer treats extraction as a collection.
+    BooksToScrape   -> method exists
+    MercadoLibre    -> method exists
+    Amazon          -> method absent
 
-Contract question:
+The exercise should be completed by the learner through contract discovery rather
+than by copying ready-made assertions.
 
-    Should "no products found" be represented by []
+Questions to resolve:
 
-rather than:
+    What must exist before the call can be made?
+    What may a falsey return mean?
+    What must be true only when extraction succeeds?
+    Which exact keys are consumer requirements?
+    What is the minimum requirement implied by images[0]?
+    Which providers genuinely participate in this capability?
 
-    None
-
-This is another strong candidate because it tests semantic compatibility between
-provider output and consumer assumptions.
-
-C. Preserve the advanced roadmap after adapter contracts
-
-After consumer-driven contracts:
-
-    model-based/stateful lifecycle testing
-    -> one controlled local end-to-end slice
-    -> deterministic concurrency and atomic job claiming
-    -> exception safety and resource ownership
-    -> optional metamorphic parser testing
-
-The two-connection SQLite work remains a useful bridge into later deterministic
-concurrency testing.
-
-
-**============================================================**
-124. UPDATED ADVANCED LEARNING ROADMAP AFTER AUTOMATED MUTATION PRACTICE
-**============================================================**
-
-Immediate next step:
-
-    perform one short fresh mutation run against the current refactored scraper,
-    inspect at most one or two worthwhile survivors, then close the mutation phase
-
-Recommended sequence:
-
-    1. Fresh narrow mutation run on current crawler_product_scraper.py.
-
-    2. Classify one or two survivors:
-       - meaningful gap;
-       - ambiguous evidence;
-       - equivalent mutant if a clear example appears;
-       - intentionally unimportant implementation choice.
-
-    3. Stop mutation work.
-
-    4. Begin consumer-driven contract tests across site adapters.
-
-       First recommended candidate:
-           product_extraction(soup)
-           -> iterable
-           -> inserted products provide usable "link"
-
-       Current reason:
-           Amazon appears incompatible with the consumer requirement.
-
-    5. Test product-scraper adapter capability:
-           wait_selector
-
-    6. Test individual-product parser adapter capability:
-           individual_product_data_extraction(soup)
-           -> required fields and images[0] compatibility
-
-    7. Resolve the empty-extraction semantic contract:
-           [] versus None
-
-    8. Move to model-based/stateful property testing of crawler job lifecycles.
-
-    9. Build one controlled local end-to-end slice.
-
-    10. Study deterministic concurrency and atomic job claiming.
-
-    11. Study exception safety and resource ownership.
-
-    12. Use metamorphic parser testing only as an optional later topic.
-
-The learning criterion remains:
-
-    each new exercise should introduce a new kind of evidence, failure mode, or
-    design question
-
-not:
-
-    accumulate tests, mocks, branches, or mutation-score points because they exist
+After this exercise, consumer-driven contract testing is sufficiently practiced
+for the current learning plan.

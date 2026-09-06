@@ -422,13 +422,16 @@ class MercadoLibre(WebsiteToScrape):
     # ---------------------------
     # Product parsing
     # ---------------------------
-    def product_extraction(self, soup: Tag) -> list[dict]:
+    def product_extraction(self, soup: Tag) -> list[dict] | None:
 
         # Find all product containers on the page
         containers = soup.find_all(
             self.product_container_selector[0],
             class_=self.product_container_selector[1]
         )
+
+        if not containers:
+            return None
 
         products = []
         seen_images = set()
