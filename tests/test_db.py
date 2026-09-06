@@ -1,7 +1,8 @@
 import pytest
 
 from utilities.database import db_initialization, insert_url, already_pending_or_fetched_url, update_url_status, db_cur_and_conn_closer
-from utilities.utils import now_with_hours
+
+
 
 @pytest.fixture
 def tmp_db(tmp_path):
