@@ -111,10 +111,10 @@ class BooksToScrape(WebsiteToScrape):
             if link:
                 link = link.get("href")
 
-                if "category" in link:
+                if "category" in link: #type: ignore
                     continue
                 else:
-                    link = urljoin(self.base_url, link)
+                    link = urljoin(self.base_url, link) #type: ignore
 
             individual_product = {
                 "link" : link
@@ -133,6 +133,7 @@ class BooksToScrape(WebsiteToScrape):
         img: Optional[str | Any] = None
         slug: Optional[str] = None
         link: Optional[str] = None
+        currency : Optional[str] = None
 
         # Name
         name_selector = ("h1")
@@ -159,9 +160,10 @@ class BooksToScrape(WebsiteToScrape):
             price_selector[0],
             class_=price_selector[1]
         )
-        price = price_tag.get_text(strip=True)
-        currency = price[0]
-        price = price[1:]
+        if price_tag:
+            price = price_tag.get_text(strip=True)
+            currency = price[0]
+            price = price[1:]
 
         # Product_id
         # Extract item_id from image_link
@@ -169,7 +171,8 @@ class BooksToScrape(WebsiteToScrape):
         product_tag = soup.find(
             product_id_selector
         )
-        product_code = product_tag.get_text(strip=True)
+        if product_tag:
+            product_code = product_tag.get_text(strip=True)
 
         # Build products
         product: dict = ({
@@ -477,7 +480,7 @@ class MercadoLibre(WebsiteToScrape):
                         candidate = src
             if candidate and candidate not in seen_images:
                 seen_images.add(candidate)
-                img = candidate
+                img = candidate #type: ignore
 
             # Product_id
             # Extract item_id from image_link

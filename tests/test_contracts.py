@@ -104,13 +104,48 @@ def test_product_scraping_wait_selector_contract(url_for_testing, adapter_classe
     ],
 )
 
-def test_individual_product_data_extraction_adapter_contract(url_for_testing, adapter_classes_for_tests):
+def test_individual_product_data_extraction_adapter_contract(adapter_classes_for_tests):
 
     adapter_used = adapter_classes_for_tests()
 
-    fake_page = create_autospec(Page)
-    fake_logger = create_autospec(Logger)
-
-    assert not hasattr(adapter_used, 'individual_product_data_extraction')
+    assert hasattr(adapter_used, 'individual_product_data_extraction')
 
 
+books_to_scrape_individual_product_html = """
+""" 
+
+ml_individual_product_html = """
+"""
+
+
+@pytest.mark.parametrize(
+    ("adapter_class", "test_html"),
+    [
+        (BooksToScrape, books_to_scrape_individual_product_html),
+        (MercadoLibre, ml_individual_product_html),
+        pytest.param(
+            Amazon,
+            'placeholder_html_value',
+            marks=pytest.mark.xfail(
+                reason="Amazon does not presently support individual product extraction"
+            ),
+        ),
+    ],
+)
+
+def test_individual_product_contract_for_adapters_that_support_individual_product_data_extraction(adapter_class, test_html):
+
+    soup = BeautifulSoup(test_html, 'html.parser')
+
+    adapter_used = adapter_class()
+
+    result = adapter_used.individual_product_data_extraction(soup)
+
+    assert isinstance(result, dict)
+    assert "slug" in result
+    assert "currency" in result
+    assert "price" in result
+    assert "product_code" in result
+    assert "reviews" in result
+    assert "images" in result
+    assert len(result["images"]) > 0
