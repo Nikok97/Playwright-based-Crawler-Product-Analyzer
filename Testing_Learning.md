@@ -6374,43 +6374,149 @@ Current status:
         -> complete for current learning goals
 
     consumer-driven contracts
-        -> two contracts practiced successfully
-        -> one final individual-product parser contract in progress
+        -> complete for current learning goals
+        -> three meaningful contracts practiced
+
+Completed contract sequence:
+
+    1. Search-parser product contract
+
+       Consumer:
+           crawler_search_html_parser
+
+       Provider operation:
+           product_extraction(soup)
+
+       Practiced evidence:
+           successful result is a list
+           representative products are dictionaries
+           "link" exists as a consumer-required key
+
+       Important semantic correction:
+           the current crawler can deliberately tolerate:
+               {"link": None}
+
+           because later product-scraper logic recognizes an unfetchable product URL
+           and moves that row to failed_unfetchable.
+
+           Therefore:
+               "link" key exists
+           is not the same contract as:
+               "link" is always a usable URL
+
+    2. Product-scraper selector contract
+
+       Consumer:
+           scrape_product_urls()
+
+       Required adapter capability:
+           wait_selector
+
+       Practiced evidence:
+           hasattr(adapter, "wait_selector")
+
+       Architectural lesson:
+           the requirement belongs to adapters participating in this capability,
+           not automatically to every registered site object.
+
+    3. Individual-product parser contract
+
+       Consumer:
+           crawler_product_html_parser / update_product_data()
+
+       Provider operation:
+           individual_product_data_extraction(soup)
+
+       Successful-result contract:
+           result is a dictionary
+           required keys exist:
+               slug
+               currency
+               price
+               product_code
+               reviews
+               images
+           images contains at least one element because the consumer reads:
+               product["images"][0]
+
+       Current provider capability:
+           BooksToScrape -> participates
+           MercadoLibre  -> participates
+           Amazon        -> does not currently expose this capability
+
+The consumer-driven contract phase is now sufficiently complete.
+
+Do not continue by manufacturing more shared-interface tests merely to cover every
+adapter attribute. The central technique has already been practiced in three distinct
+forms:
+
+    returned collection/data shape
+    structural attribute capability
+    method capability + successful returned-value compatibility
+
+Optional unresolved design question:
+
+    BooksToScrape.product_extraction():
+        no recognized product containers -> None
+
+This should only be revisited if the application needs to distinguish:
+
+    valid page containing zero products
+    vs
+    parser could not recognize the expected page structure
+
+It is not a mandatory extra contract exercise.
 
 Immediate next step:
 
-    finish the individual_product_data_extraction() consumer contract
-    without expanding contract testing into interface-completeness work
+    begin model-based/stateful testing of the ProductPages lifecycle
 
 Recommended sequence from here:
 
-    1. Complete the current individual-product parser contract:
-           method capability
-           + successful returned fields
-           + images[0] compatibility
+    1. Build one small independent ProductPages state model by hand.
 
-    2. Mark incomplete providers with xfail only where that known gap is useful to
-       keep visible.
+       Do not begin with Hypothesis syntax.
 
-    3. Treat None versus [] for empty search extraction as an optional design
-       decision, not a mandatory extra test.
+       First define:
+           model state
+           legal actions
+           expected state transitions
+           global invariants
 
-    4. Close the consumer-driven contract phase.
+    2. Apply one deterministic hand-written action history to:
+           the independent model
+           the real temporary SQLite row
 
-    5. Begin model-based/stateful property testing of ProductPages lifecycles.
-       First build a small independent model, then introduce generated stateful
-       histories.
+       After every action:
+           compare model state with database state
 
-    6. Build one controlled local end-to-end BooksToScrape slice with real SQLite,
-       filesystem, parser logic, and saved/synthetic HTML but no live network
-       dependency.
+    3. Introduce Hypothesis stateful testing / RuleBasedStateMachine only after the
+       manual model is conceptually clear.
 
-    7. Study deterministic concurrency and atomic job claiming with two SQLite
-       connections and controlled worker interleavings.
+       Then learn:
+           generated operation histories
+           invariants checked after every action
+           shrinking a failing history to a smaller counterexample
 
-    8. Study exception safety and resource ownership at the composition boundary.
+    4. Build one controlled local end-to-end BooksToScrape slice:
+           real temporary SQLite
+           real tmp_path filesystem
+           real BeautifulSoup
+           real BooksToScrape adapter
+           real crawler stage logic
+           saved/synthetic HTML
+           no live network dependency
 
-    9. Use metamorphic parser testing only as an optional later robustness topic.
+    5. Study deterministic concurrency and atomic job claiming.
+
+       Reuse the two-connection SQLite technique already practiced.
+
+       Main question:
+           can two workers claim the same pending ProductPages row?
+
+    6. Study exception safety and resource ownership at the composition boundary.
+
+    7. Use metamorphic parser testing only as an optional later robustness topic.
 
 The learning criterion remains:
 
@@ -6425,6 +6531,7 @@ not:
     mocks,
     branches,
     mutation-score points,
+    contract cases,
     or pytest syntax because they exist
 
 **============================================================**
@@ -6616,11 +6723,10 @@ a broken runtime import.
 
 
 **============================================================**
-130. CURRENT EXERCISE: INDIVIDUAL-PRODUCT PARSER CONTRACT — NOT YET DONE
+130. INDIVIDUAL-PRODUCT PARSER CONTRACT — COMPLETED
 **============================================================**
 
-The active exercise at the time of this update is the third and intended final
-contract example.
+The third and intended final consumer-driven adapter contract has now been practiced.
 
 Consumer:
 
@@ -6630,17 +6736,13 @@ Provider operation:
 
     individual_product_data_extraction(soup)
 
-Consumer behavior:
+The consumer first obtains:
 
     product = specific_site_config.individual_product_data_extraction(soup)
 
-    if not product:
-        -> parsing failure path
+A falsey result belongs to the parsing-failure path.
 
-    else:
-        update_product_data(...)
-
-update_product_data() then reads:
+For a successful result, downstream update logic directly reads:
 
     product["slug"]
     product["currency"]
@@ -6649,23 +6751,452 @@ update_product_data() then reads:
     product["reviews"]
     product["images"][0]
 
-Current adapter capabilities:
+The contract was derived from these consumer operations rather than from the exact
+implementation of any one provider.
 
-    BooksToScrape   -> method exists
-    MercadoLibre    -> method exists
-    Amazon          -> method absent
+Minimal successful-result contract:
 
-The exercise should be completed by the learner through contract discovery rather
-than by copying ready-made assertions.
+    adapter participating in individual-product parsing
+        -> exposes individual_product_data_extraction(soup)
 
-Questions to resolve:
+    successful extraction
+        -> returns a dict
 
-    What must exist before the call can be made?
-    What may a falsey return mean?
-    What must be true only when extraction succeeds?
-    Which exact keys are consumer requirements?
-    What is the minimum requirement implied by images[0]?
-    Which providers genuinely participate in this capability?
+    returned dict
+        -> contains:
+            slug
+            currency
+            price
+            product_code
+            reviews
+            images
 
-After this exercise, consumer-driven contract testing is sufficiently practiced
-for the current learning plan.
+    images
+        -> supports index 0
+        -> contains at least one element
+
+The shared test written for participating providers follows the form:
+
+    soup = BeautifulSoup(test_html, "html.parser")
+    adapter_used = adapter_class()
+
+    result = adapter_used.individual_product_data_extraction(soup)
+
+    assert isinstance(result, dict)
+    assert "slug" in result
+    assert "currency" in result
+    assert "price" in result
+    assert "product_code" in result
+    assert "reviews" in result
+    assert "images" in result
+    assert len(result["images"]) > 0
+
+The exact provider HTML may differ while the assertions remain shared.
+
+This is the same consumer-driven structure practiced earlier:
+
+    provider-specific input
+    + provider-specific implementation
+    + shared consumer requirement
+
+
+**============================================================**
+131. METHOD EXISTENCE VS RETURNED-DATA COMPATIBILITY
+**============================================================**
+
+The final contract exercise clarified two layers that should not be confused.
+
+Layer 1: method capability
+
+    Can the consumer make this call at all?
+
+        adapter.individual_product_data_extraction(soup)
+
+If the method does not exist, Python raises AttributeError.
+
+Layer 2: successful returned-data compatibility
+
+    If the call succeeds and represents a successful parse,
+    can the consumer actually use the returned object?
+
+That requires:
+
+    dict shape
+    required keys
+    an images value compatible with images[0]
+
+This distinction generalizes beyond the crawler:
+
+    interface member exists
+        !=
+    returned value satisfies the behavioral/data contract
+
+A provider can expose the correct method name while still be incompatible with
+its consumer because its return shape is wrong.
+
+
+**============================================================**
+132. KEY EXISTENCE VS VALUE USABILITY
+**============================================================**
+
+A new evidence-strength distinction was practiced directly.
+
+This assertion:
+
+    assert "images" in result
+
+proves only:
+
+    the dictionary contains the key
+
+It does not prove that the consumer operation:
+
+    result["images"][0]
+
+is valid.
+
+For example, all of these satisfy key existence:
+
+    {"images": []}
+    {"images": None}
+    {"images": some_incompatible_value}
+
+but they do not necessarily satisfy the actual consumer operation.
+
+The stronger evidence chosen was:
+
+    assert len(result["images"]) > 0
+
+because the current provider contract is intended to supply an indexable image
+collection and the consumer requires at least one element.
+
+General rule:
+
+    derive assertions from the operation the consumer performs,
+    not merely from superficial presence of a field
+
+This is another form of the minimum-sufficient-evidence principle:
+
+    weak structural fact:
+        key exists
+
+    consumer-relevant fact:
+        value can support the operation the consumer performs
+
+
+**============================================================**
+133. IMPLICIT FAILURE EVIDENCE VS EXPLICIT STRUCTURAL ASSERTIONS
+**============================================================**
+
+The final exercise also refined when hasattr() is useful.
+
+For wait_selector, the narrow contract itself was:
+
+    adapter exposes wait_selector
+
+Therefore:
+
+    assert hasattr(adapter, "wait_selector")
+
+was direct and focused evidence.
+
+For individual_product_data_extraction(), the test immediately executes:
+
+    adapter.individual_product_data_extraction(soup)
+
+If the method is absent, the test already fails with AttributeError.
+
+Therefore a separate:
+
+    assert hasattr(adapter, "individual_product_data_extraction")
+
+is not strictly required for that test.
+
+This is not a rule that hasattr() should never be used for methods.
+
+The design question is:
+
+    What is the clearest minimum evidence for this particular contract?
+
+If the method call is already necessary to test the returned-data contract, method
+absence is naturally exposed by that call.
+
+If only structural capability is being tested, hasattr() may express the requirement
+more directly.
+
+
+**============================================================**
+134. CONSUMER-DRIVEN CONTRACT TESTING — PHASE COMPLETE
+**============================================================**
+
+Three different contract forms have now been practiced.
+
+1. Shared returned collection/data contract
+
+       product_extraction(soup)
+
+       learned:
+           same assertions across providers
+           provider-specific HTML input
+           runtime type checks
+           required consumer key
+           known incompatibility through xfail
+
+2. Structural capability contract
+
+       wait_selector
+
+       learned:
+           capability requirements belong to participating consumers/providers
+           hasattr() can express a narrow structural promise
+           do not call an entire downstream workflow merely to prove one attribute
+
+3. Method + successful returned-data contract
+
+       individual_product_data_extraction(soup)
+
+       learned:
+           method existence and return compatibility are separate layers
+           required fields come from consumer operations
+           key existence is weaker than value usability
+           images[0] creates a non-empty/indexability requirement
+
+Concepts consolidated across the phase:
+
+    consumer-driven contract
+    provider verification
+    shared contract assertions
+    provider-specific input
+    capability-based interface reasoning
+    structural compatibility
+    behavioral/data compatibility
+    substitutability
+    xfail as visible known incompatibility
+    XFAIL vs XPASS vs SKIP vs pytest.raises
+    fixture vs parametrized argument
+    isinstance() runtime checks
+    parameterized generics are not runtime isinstance() classes
+    hasattr()
+    synthetic HTML as minimum test scaffolding
+    direct contract evidence over unrelated workflow execution
+    minimum sufficient evidence
+    contract tests as executable architecture documentation
+
+Stopping rule:
+
+    The crawler has enough contract examples to establish the technique.
+
+Adding more adapter contract tests now would mostly repeat the same reasoning with
+different member names.
+
+The phase is complete.
+
+
+**============================================================**
+135. CURRENT LEARNING POSITION: BEGIN MODEL-BASED/STATEFUL TESTING
+**============================================================**
+
+The next topic is not another pytest assertion API.
+
+The crawler already has many individually tested state transitions. The next new
+testing problem is:
+
+    Can a sequence of individually valid operations produce an invalid lifecycle?
+
+The recommended target is ProductPages because it already has a meaningful workflow.
+
+Relevant states in the current learning model include:
+
+    pending
+    fetching
+    fetched
+    parsing
+    parsed_succeeded
+    parsing_failed
+    failed
+    failed_unfetchable
+
+Recovery behavior already seen in the project includes:
+
+    interrupted fetching -> pending
+    stuck parsing -> a state eligible for later parsing/recovery
+
+The new technique is to maintain an independent model:
+
+    expected_state = ...
+
+Then perform the same conceptual action against:
+
+    the model
+    the real temporary SQLite database
+
+After each operation:
+
+    assert database_state == model_state
+
+This differs from the state-machine tests already practiced.
+
+Earlier state tests asked:
+
+    Is this one transition legal?
+    Does this one recovery transition work?
+    Is this terminal state protected?
+
+Model-based/stateful testing asks:
+
+    Across a sequence of actions, does the real implementation remain equivalent
+    to an independent model after every step?
+
+First exercise recommendation:
+
+    Do NOT install or write Hypothesis machinery immediately.
+
+    Start with:
+        one ProductPages row
+        one explicit model variable
+        three or four meaningful actions
+        one hand-selected action sequence
+        comparison after every action
+
+Candidate first sequence:
+
+    pending
+    -> claim for fetching
+    -> fetching
+    -> report successful fetch
+    -> fetched
+    -> claim for parsing
+    -> parsing
+    -> report parse failure
+    -> parsing_failed
+
+The purpose of this first sequence is not to discover a bug.
+
+It is to learn the model-testing structure:
+
+    model action
+    + real action
+    + compare after every step
+
+Only after that structure is clear should Hypothesis generate alternative histories.
+
+High-value follow-up after the hand-built model:
+
+    Hypothesis RuleBasedStateMachine
+
+Then learn:
+
+    rules/actions
+    preconditions
+    invariants
+    generated histories
+    shrinking
+
+This is the current recommended next learning phase.
+
+
+**============================================================**
+136. FOLLOW-UP ROADMAP FROM THE CURRENT CRAWLER
+**============================================================**
+
+A. Immediate: manual independent lifecycle model
+
+    Use ProductPages.
+
+    Goal:
+        learn model-based evidence without first learning library syntax
+
+    New evidence:
+        equivalence between real persistent state and an independent expected model
+        after every operation in a history
+
+B. Then: generated stateful property testing
+
+    Introduce Hypothesis only after the manual model works.
+
+    Goal:
+        generate histories the test author did not enumerate manually
+
+    New concepts:
+        rule-based state machines
+        preconditions
+        invariants
+        shrinking operation sequences
+
+C. Controlled BooksToScrape end-to-end slice
+
+    Keep real:
+        SQLite
+        tmp_path filesystem
+        BeautifulSoup
+        BooksToScrape adapter
+        crawler stage logic
+
+    Control:
+        browser/network boundary
+
+    Follow one product through several crawler stages and verify final persistent
+    state.
+
+    New evidence:
+        vertical system-level cooperation across real components
+
+D. Deterministic concurrency and atomic claiming
+
+    Candidate:
+        two SQLite connections / two simulated workers
+
+    Question:
+        can both workers claim the same pending row?
+
+    New concepts:
+        race condition
+        controlled interleaving
+        transaction isolation
+        atomic claim operation
+
+E. Exception safety and resource ownership
+
+    Candidate guarantees:
+        DB closes after pipeline failure
+        owned resources close exactly once
+        partial initialization is cleaned up
+        cleanup failure does not silently hide the primary failure
+
+    New concepts:
+        composition-root testing
+        resource ownership
+        setup/work/teardown failure injection
+
+F. Optional metamorphic parser testing
+
+    Transform valid HTML without changing meaning:
+
+        whitespace changes
+        irrelevant nodes
+        unrelated attribute order
+        extra non-product containers
+
+    Then assert:
+        transformed extraction == original extraction
+
+    New evidence:
+        semantic stability without writing a new exact oracle for every transformed
+        input
+
+Priority order:
+
+    manual model
+    -> Hypothesis stateful generation
+    -> controlled local E2E slice
+    -> deterministic concurrency
+    -> exception safety/resource ownership
+    -> optional metamorphic parser robustness
+
+The governing rule remains:
+
+    move on when the concept is learned
+
+not:
+
+    keep adding tests because more tests can be written
