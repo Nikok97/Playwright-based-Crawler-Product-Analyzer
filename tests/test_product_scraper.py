@@ -4,7 +4,7 @@ import sqlite3
 
 from pathlib import Path
 from bs4 import BeautifulSoup
-from unittest.mock import patch, Mock, create_autospec, call, create_autospec
+from unittest.mock import patch, Mock, create_autospec, call
 from playwright.sync_api import Page
 
 from utilities.database import db_initialization, db_cur_and_conn_closer, insert_url, update_url_status, insert_product_url
@@ -256,8 +256,8 @@ def test_scrape_urls_unhappy_path_fetch_html_interrupted_by_keyboard(tmp_db, tmp
 
             scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site, logger, error_logger, fetch_html=fake_html_fetching)
 
-    fake_html_fetching.assert_called_once()
-    mock_write_html.assert_not_called()
+            fake_html_fetching.assert_called_once()
+            mock_write_html.assert_not_called()
 
     # assert fetch status in product pages is failed
     tmp_db['cur'].execute('SELECT fetch_status from ProductPages where product_url=?', ('product.com',))
