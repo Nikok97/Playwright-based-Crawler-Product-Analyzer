@@ -11,7 +11,7 @@ from utilities.database import db_initialization, db_cur_and_conn_closer, insert
 from utilities.utils import process_single_url, load_page, extract_html, perform_scroll, human_scroll
 from crawler.crawler_product_scraper import get_pending_product_url, scrape_product_urls, process_single_url, occasional_long_pause_to_simulate_browsing, update_fetch_status_in_product_pages
 from crawler.crawler_product_html_parser import update_parse_status, get_fetched_product
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
 
 
 def read_product_status_from_db(db : dict, url: str) -> tuple[str | None, str | None]:
