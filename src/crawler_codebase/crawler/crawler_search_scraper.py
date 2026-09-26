@@ -52,7 +52,6 @@ def reset_stuck_fetch_jobs(db):
 def write_html_to_disk(url_id: int | None, paths_dict: dict[str, Path], url: str, html: str, db: dict) -> None:
 
     #Write HTML to disk
-
     filename = f"page_{url_id}.html"
     write_html(paths_dict['data_dir'], filename, html)
     update_filename_for_url(url, db, filename)
@@ -80,7 +79,16 @@ def scrape_urls_with_playwright(db: dict, logger: Logger, error_logger: Logger, 
         scrape_urls(db, paths_dict, page, specific_site_config, logger, error_logger)
 
 
-def scrape_urls(db: dict, paths_dict: dict, page : Page, specific_site_config : WebsiteToScrape, logger: Logger, error_logger: Logger, page_counter=1, fetch_html =process_single_url) -> None:
+def scrape_urls(
+    db: dict, 
+    paths_dict: dict, 
+    page : Page, 
+    specific_site_config : WebsiteToScrape, 
+    logger: Logger, 
+    error_logger: Logger, 
+    page_counter=1, 
+    fetch_html=process_single_url
+) -> None:
 
     #Main crawling loop
 

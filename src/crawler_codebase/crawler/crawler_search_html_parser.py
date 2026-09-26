@@ -103,8 +103,8 @@ def crawler_search_html_parser(
 
                     if insert_product_url(db, individual_product, url_id, error_logger):
                         
-                        logger.info(
-                            f"Inserted product {idx} of {total_number_of_products_in_page} for URL {url_id}")
+                        logger.info(f"Inserted product {idx} of {total_number_of_products_in_page} for URL {url_id}")
+                        
                     else:
                         logger.info(
                             f"Failed to insert product {idx} of {total_number_of_products_in_page} for URL {url_id}")

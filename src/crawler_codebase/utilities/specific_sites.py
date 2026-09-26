@@ -183,9 +183,8 @@ class BooksToScrape(WebsiteToScrape):
             "product_code": product_code,
             "product_url" : link,
             "reviews" : None,
-            "images": [
-            img
-            ]})
+            "images": [img]
+        })
 
         return product
 

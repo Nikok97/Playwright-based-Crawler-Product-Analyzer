@@ -91,20 +91,14 @@ def reset_stuck_parsing_jobs(db: dict):
     )
     db["conn"].commit()
 
-    
-###################################################
-
-def run_crawler_product_html_parser(
-        db: dict,
+def parse_product_html_files(
+        db,
+        paths_dict,
         specific_site_config,
-        paths_dict: dict, 
-        logger: logging.Logger, 
-        error_logger: logging.Logger,
-        counter_of_products=1
-    ):
-
-    # Reset stuck parsing jobs
-    reset_stuck_parsing_jobs(db)
+        counter_of_products,
+        logger,
+        error_logger
+):
 
     # Main logic
     while True:
@@ -168,7 +162,7 @@ def run_crawler_product_html_parser(
             counter_of_products += 1
 
             try:
-            #Move html to a folder with the date of the parse for better organization. This renames the reference of the OS to the html to the new archiving_folder path.
+                #Move html to a folder with the date of the parse for better organization. This renames the reference of the OS to the html to the new archiving_folder path.
                 file_path.rename(html_archiving_folder / file_path.name)
             
             except Exception as error:
@@ -184,6 +178,33 @@ def run_crawler_product_html_parser(
             update_parse_status(row_id, db, status='parsing_failed')
 
             db["conn"].commit()
+
+
+    
+###################################################
+
+def run_crawler_product_html_parser(
+        db: dict,
+        specific_site_config,
+        paths_dict: dict, 
+        logger: logging.Logger, 
+        error_logger: logging.Logger,
+        counter_of_products=1
+    ):
+
+    # Reset stuck parsing jobs
+    reset_stuck_parsing_jobs(db)
+
+    # Main logic
+    parse_product_html_files(
+        db,
+        paths_dict,
+        specific_site_config,
+        counter_of_products,
+        logger,
+        error_logger
+    )
+
 
 
 

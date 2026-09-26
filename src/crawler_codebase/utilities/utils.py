@@ -211,7 +211,7 @@ def process_single_url(page: Page, url: str, logger: logging.Logger, wait_select
     time.sleep(random.uniform(3, 5))
 
     #HTML extraction phase
-    html = html_extracting(page, url)
+    html : str | None = html_extracting(page, url)
     
     if html is None:
         return None

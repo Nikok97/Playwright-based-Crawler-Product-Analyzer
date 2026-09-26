@@ -72,14 +72,17 @@ def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, err
         filename: Optional[str] = None 
 
         try:
+
             # Get each product URL, name and row_id
             row_id, product_url = get_pending_product_url(db)
 
             if row_id is None:
+
                 logger.info("No more URLs found. Exiting program")
                 break
             
             if product_url is None:
+
                 update_fetch_status_in_product_pages(row_id, db, filename, status='failed_unfetchable')
                 logger.info(f"URL not found for {row_id}. Continuing program")
                 continue
@@ -149,7 +152,7 @@ def scrape_product_urls_with_playwright(db, paths_dict, specific_site_config , l
         context = stealth_context(browser)
         page = context.new_page()
 
-        scrape_product_urls(db, paths_dict, page, specific_site_config , logger, error_logger, page_counter=1, fetch_html =process_single_url)
+        scrape_product_urls(db, paths_dict, page, specific_site_config , logger, error_logger, page_counter=1, fetch_html=process_single_url)
 
 ##########################################################
 
