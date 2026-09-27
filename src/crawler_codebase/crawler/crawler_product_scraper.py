@@ -50,8 +50,9 @@ def get_pending_product_url(db: dict) -> tuple[int, str] | tuple[None, None]:
     # Lock
     # Updates status to fetching
     db["cur"].execute(
-        'UPDATE ProductPages SET fetch_status = ? WHERE id = ?',
-        ('fetching', row_id)
+        'UPDATE ProductPages SET fetch_status = ? WHERE id = ? AND fetch_status = ?',
+        ('fetching', row_id, 'pending')
+
     )
 
     db["conn"].commit()
