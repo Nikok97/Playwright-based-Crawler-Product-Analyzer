@@ -1,6 +1,6 @@
 import logging
 
-from utilities.database import insert_url, already_pending_or_fetched_url, update_url_status
+from utilities.database import Database, already_pending_or_fetched_url
 from utilities.utils import now_with_hours
 
 def resolve_pagination(
@@ -48,7 +48,7 @@ def alrogithmic_paginator(
     return list_of_urls
 
 def db_insert_paginated_urls(
-    db: dict, 
+    db: Database, 
     list_of_urls: list[str], 
     logger: logging.Logger, 
     error_logger: logging.Logger):
@@ -69,11 +69,11 @@ def db_insert_paginated_urls(
 
             try:
 
-                insert_url(list_of_urls[i], db, date)
+                db.insert_url(list_of_urls[i], date)
 
                 logger.info(f"{page_counter}. Inserted URL: {list_of_urls[i]}")
 
-                update_url_status(list_of_urls[i], db, status="pending")
+                db.update_url_status(list_of_urls[i], status="pending")
 
                 logger.info(f"{page_counter}. Marked pending status for URL: {list_of_urls[i]}")
 
@@ -89,7 +89,7 @@ def db_insert_paginated_urls(
 #######################################################
 
 def run_crawler_seed(
-    db: dict,
+    db: Database,
     specific_site_config,
     seed_url: str,
     site_name: str,

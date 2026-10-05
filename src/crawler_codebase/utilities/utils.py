@@ -196,7 +196,15 @@ def extract_html(page: Page, url: str) -> str | None:
             exc_info=True)
         return None
 
-def process_single_url(page: Page, url: str, logger: logging.Logger, wait_selector: str, page_loading=load_page, perform_scrolling=perform_scroll, html_extracting=extract_html) -> str | None:
+def process_single_url(
+        page: Page, 
+        url: str, 
+        logger: logging.Logger, 
+        wait_selector: str, 
+        page_loading=load_page, 
+        perform_scrolling=perform_scroll, 
+        html_extracting=extract_html
+    ) -> str | None:
 
     #Navigation phase
     if not page_loading(page, url, wait_selector, max_attempts=2):
@@ -219,7 +227,11 @@ def process_single_url(page: Page, url: str, logger: logging.Logger, wait_select
     else:
         return html
 
-def write_html(output_directory: Path, filename: str, html: str) -> bool:
+def write_html(
+    output_directory: Path, 
+    filename: str, 
+    html: str
+) -> bool:
 
     """
     Writes HTML to disk.

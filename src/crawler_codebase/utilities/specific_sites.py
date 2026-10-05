@@ -35,8 +35,8 @@ def specific_site_setup(SITE_REGISTRY: dict, site_name: str) -> tuple:
     
     return specific_site_config, seed_url
 
-
 ################################
+
 class WebsiteToScrape(ABC):
 
     selector_to_start_process : str
@@ -45,6 +45,7 @@ class WebsiteToScrape(ABC):
     def product_extraction(self, soup: Tag) -> list[dict] | None:
         pass
     pass
+
 #################################
     
 class BooksToScrape(WebsiteToScrape):

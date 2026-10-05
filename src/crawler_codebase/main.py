@@ -17,7 +17,7 @@ from utilities.specific_sites import (
     site_registry, 
     specific_site_setup
 )
-from utilities.database import db_initialization
+from utilities.database import Database, db_cur_and_conn_closer
 
 
 def load_config(config_path):
@@ -26,12 +26,6 @@ def load_config(config_path):
         config = json.load(f)
         return config
     
-def close_db(db):
-    # Closes the database if it exists
-    if db:
-        db["cur"].close()
-        db["conn"].close()
-
 def get_default_stages():
     # Returns the stages with the default value True to run the whole program as default setting
     
@@ -185,15 +179,16 @@ def main():
     specific_site_config, seed_url = load_site_setup(site_name)
 
     # DB variables setup
-    db = None
+    database = None
     db_path = paths_dict['data_dir'] / db_path
 
     try:
         # DB init
-        db = db_initialization(db_path)
+
+        database = Database(db_path)
 
         # Context
-        context = CrawlerContext(db, paths_dict, specific_site_config, seed_url, site_name, pages_to_crawl, logger, error_logger)
+        context = CrawlerContext(database, paths_dict, specific_site_config, seed_url, site_name, pages_to_crawl, logger, error_logger)
 
         # Pipeline
         stage_pipeline = get_stage_pipeline()
@@ -204,7 +199,8 @@ def main():
         error_logger.error("The following error occurred when running main module: ", exc_info=True)
             
     finally:
-        close_db(db)
+        if database:
+            db_cur_and_conn_closer(database)
 
 # Entry point
 if __name__ == "__main__":

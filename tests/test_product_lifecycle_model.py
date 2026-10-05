@@ -1,36 +1,40 @@
-import logging
 import pytest
 import sqlite3
 
-from pathlib import Path
-from bs4 import BeautifulSoup
-from unittest.mock import patch, Mock, create_autospec, call
-from playwright.sync_api import Page
+from utilities.database import Database
 
-from utilities.database import db_initialization, db_cur_and_conn_closer, insert_url, update_url_status, insert_product_url
-from utilities.utils import process_single_url, load_page, extract_html, perform_scroll, human_scroll
-from crawler.crawler_product_scraper import get_pending_product_url, scrape_product_urls, process_single_url, occasional_long_pause_to_simulate_browsing, update_fetch_status_in_product_pages
-from crawler.crawler_product_html_parser import update_parse_status, get_fetched_product
+def read_product_status_from_db(db : Database, url: str) -> tuple[str | None, str | None]:
 
+    conn, cur = [None] * 2
 
+    try:
 
-def read_product_status_from_db(db : dict, url: str) -> tuple[str | None, str | None]:
+        conn = sqlite3.connect(db.path)
+        cur = conn.cursor()
 
-    db['cur'].execute("SELECT fetch_status, parse_status FROM ProductPages where product_url=?", (url,))
-    row = db['cur'].fetchone()
+        cur.execute("SELECT fetch_status, parse_status FROM ProductPages where product_url=?", (url,))
+        row = cur.fetchone()
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
     return row
 
 @pytest.fixture
 def tmp_db(tmp_path):
+        
     # 1. setup
     temp_db_path = tmp_path / "temp_db.sqlite"
-    db = db_initialization(temp_db_path)
+    db = Database(temp_db_path)
 
     # 2. hand the db to the test
     yield db
 
     # 3. cleanup after the test finishes
-    db_cur_and_conn_closer(db)
+    db.close()
+
 
 @pytest.fixture
 def product_for_testing():
@@ -56,7 +60,7 @@ def test_crawler_product_lifecycle_model(tmp_db, product_for_testing):
     """
 
     # 1. Insert product
-    insert_product_url(tmp_db, product_for_testing)
+    tmp_db.insert_product_url(product_for_testing)
 
     expected_state = ('pending', None)
 
@@ -66,7 +70,7 @@ def test_crawler_product_lifecycle_model(tmp_db, product_for_testing):
 
     # 2.
 
-    get_pending_product_url(tmp_db)
+    tmp_db.get_pending_product_url()
 
     result = read_product_status_from_db(tmp_db, 'product_1.com')
 
@@ -75,7 +79,7 @@ def test_crawler_product_lifecycle_model(tmp_db, product_for_testing):
     assert result == expected_state
 
     # 3.
-    update_fetch_status_in_product_pages(1, tmp_db, None, 'fetched')
+    tmp_db.update_fetch_status_in_product_pages(1, None, 'fetched')
 
     result = read_product_status_from_db(tmp_db, 'product_1.com')
 
@@ -85,7 +89,7 @@ def test_crawler_product_lifecycle_model(tmp_db, product_for_testing):
 
     # 4.
 
-    get_fetched_product(tmp_db)
+    tmp_db.get_fetched_product()
 
     result = read_product_status_from_db(tmp_db, 'product_1.com')
 
@@ -96,7 +100,7 @@ def test_crawler_product_lifecycle_model(tmp_db, product_for_testing):
 
     # 5
 
-    update_parse_status(1, tmp_db, 'parsing_failed')
+    tmp_db.update_parse_status(1, 'parsing_failed')
 
     result = read_product_status_from_db(tmp_db, 'product_1.com')
 

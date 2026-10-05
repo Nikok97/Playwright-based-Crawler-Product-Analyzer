@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 from logging import Logger
 from utilities.specific_sites import WebsiteToScrape, BooksToScrape, Amazon, MercadoLibre
-from utilities.database import db_initialization, db_cur_and_conn_closer
+from utilities.database import Database
 from utilities.utils import process_single_url
 
 @pytest.fixture
@@ -133,7 +133,10 @@ ml_individual_product_html = """
     ],
 )
 
-def test_individual_product_contract_for_adapters_that_support_individual_product_data_extraction(adapter_class, test_html):
+def test_individual_product_contract_for_adapters_that_support_individual_product_data_extraction(
+    adapter_class, 
+    test_html
+):
 
     soup = BeautifulSoup(test_html, 'html.parser')
 

@@ -1,4 +1,5 @@
 import tempfile
+import sqlite3
 from pathlib import Path
 
 from hypothesis.stateful import (
@@ -8,31 +9,46 @@ from hypothesis.stateful import (
     invariant,
 )
 
-from utilities.database import (
-    db_initialization,
-    db_cur_and_conn_closer,
-    insert_product_url,
-)
+from utilities.database import Database
 
-from crawler.crawler_product_scraper import (
-    get_pending_product_url,
-    reset_stuck_jobs,
-    update_fetch_status_in_product_pages,
-)
+def read_product_status_from_db(db : Database, url: str) -> tuple[str | None, str | None]:
 
-def read_product_status_from_db(db : dict, product_url: str):
+    conn, cur = [None] * 2
 
-    db['cur'].execute('SELECT fetch_status, parse_status FROM ProductPages WHERE product_url = ?', (product_url,))
+    try:
 
-    fetch_status, parse_status = db['cur'].fetchone()
+        conn = sqlite3.connect(db.path)
+        cur = conn.cursor()
 
-    return fetch_status, parse_status
+        cur.execute("SELECT fetch_status, parse_status FROM ProductPages where product_url=?", (url,))
+        row = cur.fetchone()
 
-def read_product_status_from_db_failed_cases(db : dict):
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+    return row
 
-    db['cur'].execute('SELECT fetch_status, parse_status FROM ProductPages WHERE product_url is NULL')
 
-    fetch_status, parse_status = db['cur'].fetchone()
+def read_product_status_from_db_failed_cases(db : Database):
+
+    conn, cur = [None] * 2
+
+    try:
+
+        conn = sqlite3.connect(db.path)
+        cur = conn.cursor()
+
+        cur.execute('SELECT fetch_status, parse_status FROM ProductPages WHERE product_url is NULL')
+
+        fetch_status, parse_status = cur.fetchone()
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
     return fetch_status, parse_status
 
@@ -47,7 +63,7 @@ class ProductLifecycleMachine(RuleBasedStateMachine):
 
         db_path = Path(self.temp_dir.name) / "test.sqlite"
 
-        self.db = db_initialization(db_path) # type: ignore
+        self.db = Database(db_path)
 
         self.row_id = None
 
@@ -57,7 +73,7 @@ class ProductLifecycleMachine(RuleBasedStateMachine):
 
         self.expected_state = ("pending", None)
 
-        insert_product_url(self.db, self.product)
+        self.db.insert_product_url(self.product)
 
     @invariant()
     def database_matches_model(self):
@@ -76,7 +92,7 @@ class ProductLifecycleMachine(RuleBasedStateMachine):
     @rule()
     def claim_for_fetching(self):
 
-        row_id, product_url = get_pending_product_url(self.db)
+        row_id, product_url = self.db.get_pending_product_url()
 
         self.row_id = row_id
 
@@ -91,7 +107,7 @@ class ProductLifecycleMachine(RuleBasedStateMachine):
 
     @rule()
     def recover_fetching(self):
-        reset_stuck_jobs(self.db)
+        self.db.reset_stuck_jobs()
 
         self.expected_state = ("pending", None)
         
@@ -103,9 +119,8 @@ class ProductLifecycleMachine(RuleBasedStateMachine):
     @rule()
     def fail_fetching(self):
 
-        update_fetch_status_in_product_pages(
-            self.row_id , # type: ignore
-            self.db,
+        self.db.update_fetch_status_in_product_pages(
+            self.row_id , #type: ignore 
             filename='product_1.html',
             status="failed"
         ) 
@@ -118,13 +133,13 @@ class ProductLifecycleMachine(RuleBasedStateMachine):
     @rule()
     def failed_is_not_claimable(self):
 
-        row_id, product_url = get_pending_product_url(self.db)
+        row_id, product_url = self.db.get_pending_product_url()
 
         assert row_id is None
         assert product_url is None
 
     def teardown(self):
-        db_cur_and_conn_closer(self.db)
+        self.db.close()
         self.temp_dir.cleanup()
 
 class ProductLifecycleMachineFailedCases(RuleBasedStateMachine):
@@ -137,7 +152,7 @@ class ProductLifecycleMachineFailedCases(RuleBasedStateMachine):
 
         db_path = Path(self.temp_dir.name) / "test.sqlite"
 
-        self.db = db_initialization(db_path) # type: ignore
+        self.db = Database(db_path) # type: ignore
 
         self.row_id = None
 
@@ -145,7 +160,7 @@ class ProductLifecycleMachineFailedCases(RuleBasedStateMachine):
 
         self.expected_state = ("pending", None)
 
-        insert_product_url(self.db, self.product)
+        self.db.insert_product_url(self.product)
 
     @invariant()
     def database_matches_model(self):
@@ -160,7 +175,7 @@ class ProductLifecycleMachineFailedCases(RuleBasedStateMachine):
     @rule()
     def claim_for_fetching(self):
 
-        row_id, product_url = get_pending_product_url(self.db)
+        row_id, product_url = self.db.get_pending_product_url()
 
         self.row_id = row_id
 
@@ -176,8 +191,8 @@ class ProductLifecycleMachineFailedCases(RuleBasedStateMachine):
     @rule()
     def update_as_failed_unfetchable(self):
 
-        update_fetch_status_in_product_pages(1, 
-        self.db, 
+        self.db.update_fetch_status_in_product_pages(
+        1, 
         filename=None, 
         status='failed_unfetchable'
         )
@@ -191,14 +206,14 @@ class ProductLifecycleMachineFailedCases(RuleBasedStateMachine):
     @rule()
     def failed_unfetchable_is_not_claimable(self):
 
-        row_id, product_url = get_pending_product_url(self.db)
+        row_id, product_url = self.db.get_pending_product_url()
 
         assert row_id is None
         assert product_url is None
     
 
     def teardown(self):
-        db_cur_and_conn_closer(self.db)
+        self.db.close()
         self.temp_dir.cleanup()
 
 #TestProductLifecycleMachine = ProductLifecycleMachine.TestCase

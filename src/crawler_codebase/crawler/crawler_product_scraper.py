@@ -1,70 +1,26 @@
 import random
 import logging
-import sqlite3
 
 from typing import Optional
 from playwright.sync_api import sync_playwright
 from utilities.stealth import stealth_context
 from utilities.utils import countdown_sleep_timer, process_single_url, write_html
-
-def update_fetch_status_in_product_pages(row_id: int, db: dict, filename: str | None, status: str):
-
-    db["cur"].execute(
-        "UPDATE ProductPages SET fetch_status = ?, filename = ? WHERE id = ?",
-        (status, 
-        filename, 
-        row_id)
-    )
-    db["conn"].commit()
-
-def reset_stuck_jobs(db: dict):
-    # Resets stuck jobs: sets the fetch_status of product webpages from ProductPages where fetch_status is 'pending' to 'fetching'
-    db["cur"].execute(
-        '''
-        UPDATE ProductPages
-        SET fetch_status = 'pending'
-        WHERE fetch_status = 'fetching'
-        '''
-    )
-    db["conn"].commit()
-
-def get_pending_product_url(db: dict) -> tuple[int, str] | tuple[None, None]:
-    # Gets 1 product webpage (d, product_url) from ProductPages table that has not yet been scraped.
-    db["cur"].execute(
-        '''
-        SELECT id, product_url
-        FROM ProductPages
-        WHERE fetch_status = ?
-        ORDER BY id
-        LIMIT 1
-        ''',
-        ('pending',)
-    )
-    row = db["cur"].fetchone()
-    
-    if row is None:
-        return None, None
-    
-    row_id, product_url = row
-
-    # Lock
-    # Updates status to fetching
-    db["cur"].execute(
-        'UPDATE ProductPages SET fetch_status = ? WHERE id = ? AND fetch_status = ?',
-        ('fetching', row_id, 'pending')
-
-    )
-
-    db["conn"].commit()
-    
-    return row_id, product_url
+from utilities.database import Database
 
 def occasional_long_pause_to_simulate_browsing(page_counter):
     if (page_counter % 5 == 0) and (page_counter != 0):
         special_wait_time = random.uniform(5, 7)
         countdown_sleep_timer(special_wait_time)
 
-def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, error_logger, page_counter=1, fetch_html=process_single_url) -> None:
+def scrape_product_urls(
+        db : Database, 
+        paths_dict, 
+        page, 
+        specific_site_config , 
+        logger, 
+        error_logger, 
+        page_counter=1, 
+        fetch_html=process_single_url) -> None:
     
     # Main crawling loop
     while True:
@@ -75,7 +31,7 @@ def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, err
         try:
 
             # Get each product URL, name and row_id
-            row_id, product_url = get_pending_product_url(db)
+            row_id, product_url = db.get_pending_product_url()
 
             if row_id is None:
 
@@ -84,7 +40,7 @@ def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, err
             
             if product_url is None:
 
-                update_fetch_status_in_product_pages(row_id, db, filename, status='failed_unfetchable')
+                db.update_fetch_status_in_product_pages(row_id, filename, status='failed_unfetchable')
                 logger.info(f"URL not found for {row_id}. Continuing program")
                 continue
             
@@ -104,7 +60,7 @@ def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, err
 
                 error_logger.error(f"HTML not fetched for URL: {product_url}")
 
-                update_fetch_status_in_product_pages(row_id, db, filename, status='failed')
+                db.update_fetch_status_in_product_pages(row_id, filename, status='failed')
 
                 continue
             
@@ -113,13 +69,13 @@ def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, err
             
             if write_html(paths_dict['output_dir'], filename, html):
 
-                update_fetch_status_in_product_pages(row_id, db, filename, status='fetched')
+                db.update_fetch_status_in_product_pages(row_id, filename, status='fetched')
 
                 page_counter += 1
 
             else:
 
-                update_fetch_status_in_product_pages(row_id, db, filename, status='failed')
+                db.update_fetch_status_in_product_pages(row_id, filename, status='failed')
 
             # Normal safe delay
             wait_time = random.uniform(1, 5)
@@ -130,7 +86,7 @@ def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, err
 
             if row_id is not None:
 
-                update_fetch_status_in_product_pages(row_id, db, filename, status='pending')
+                db.update_fetch_status_in_product_pages(row_id, filename, status='pending')
 
             raise KeyboardInterrupt()
 
@@ -138,11 +94,16 @@ def scrape_product_urls(db, paths_dict, page, specific_site_config , logger, err
 
             if row_id is not None:
                 
-                update_fetch_status_in_product_pages(row_id, db, filename, status='failed')
+                db.update_fetch_status_in_product_pages(row_id, filename, status='failed')
 
             error_logger.error("Unhandled error in product scraper", exc_info=True)
 
-def scrape_product_urls_with_playwright(db, paths_dict, specific_site_config , logger, error_logger):
+def scrape_product_urls_with_playwright(
+        db : Database, 
+        paths_dict : dict, 
+        specific_site_config, 
+        logger, 
+        error_logger):
     
     # Main loop
     with sync_playwright() as p:
@@ -158,7 +119,7 @@ def scrape_product_urls_with_playwright(db, paths_dict, specific_site_config , l
 ##########################################################
 
 def run_crawler_product_scraper(
-    db: dict,
+    db: Database,
     specific_site_config,
     paths_dict: dict,
     logger: logging.Logger,
@@ -166,7 +127,7 @@ def run_crawler_product_scraper(
     ):
     
     #Reset stuck parsing jobs
-    reset_stuck_jobs(db)
+    db.reset_stuck_jobs()
 
     #Main loop
     scrape_product_urls_with_playwright(db, paths_dict, specific_site_config , logger, error_logger)

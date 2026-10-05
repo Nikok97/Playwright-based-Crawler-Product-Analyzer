@@ -2,37 +2,14 @@ import logging
 import pytest
 import sqlite3
 
-from pathlib import Path
-from bs4 import BeautifulSoup
 from unittest.mock import patch, Mock, create_autospec, call
-from playwright.sync_api import Page
 
-from utilities.database import db_initialization, db_cur_and_conn_closer, insert_url, update_url_status, insert_product_url
-from utilities.utils import process_single_url, load_page, extract_html, perform_scroll, human_scroll
-from crawler.crawler_product_scraper import get_pending_product_url, scrape_product_urls, process_single_url, occasional_long_pause_to_simulate_browsing
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from utilities.database import Database
+from utilities.utils import process_single_url, load_page, extract_html, perform_scroll
+from crawler.crawler_product_scraper import scrape_product_urls, process_single_url, occasional_long_pause_to_simulate_browsing
 
 logger = logging.getLogger("test_logger")
 error_logger = logging.getLogger("test_error_logger")
-
-@pytest.fixture
-def connection_number_two_on_same_db(tmp_path):
-
-    # 1. Open connection (creates the file if it doesn't exist)
-    temp_db_path = tmp_path / "temp_db.sqlite"
-
-    conn = sqlite3.connect(temp_db_path)
-
-    # 2. Open cursor
-    cur = conn.cursor()
-
-    db = {'conn': conn, 'cur': cur}
-
-    yield db
-
-    # 3. Close everything when done
-    cur.close()
-    conn.close()
 
 # fakesite config
 class FakeSiteConfig:
@@ -86,45 +63,80 @@ def tmp_paths_dict(tmp_path):
 def tmp_db(tmp_path):
     # 1. setup
     temp_db_path = tmp_path / "temp_db.sqlite"
-    db = db_initialization(temp_db_path)
+    db = Database(temp_db_path)
 
     # 2. hand the db to the test
     yield db
 
     # 3. cleanup after the test finishes
-    db_cur_and_conn_closer(db)
+    db.close()
 
 
 def test_get_pending_product_url_happy_path(tmp_db, individual_product_page_for_testing):
 
-    insert_product_url(tmp_db, individual_product_page_for_testing)
+    tmp_db.insert_product_url(individual_product_page_for_testing)
 
-    result = get_pending_product_url(tmp_db)
+    result = tmp_db.get_pending_product_url()
 
-    tmp_db['cur'].execute("SELECT fetch_status from ProductPages where product_url = ? ", (individual_product_page_for_testing['link'],))
-    status = tmp_db['cur'].fetchone()
+    conn, cur = None, None
 
-    assert status[0] == 'fetching'
-    assert result == (1,'www.product.com' )
+    try:
+
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
+
+        cur.execute("SELECT fetch_status from ProductPages where product_url = ? ", (individual_product_page_for_testing['link'],))
+        status = cur.fetchone()
+
+        assert status[0] == 'fetching'
+        assert result == (1,'www.product.com' )
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def test_get_pending_product_url_no_product_url(tmp_db, individual_product_page_for_testing):
 
-    result = get_pending_product_url(tmp_db)
+    result = tmp_db.get_pending_product_url()
 
-    tmp_db['cur'].execute("SELECT fetch_status from ProductPages where product_url = ? ", (individual_product_page_for_testing['link'],))
-    status = tmp_db['cur'].fetchone()
+    conn, cur = None, None
 
-    assert status is None
-    assert result == (None, None)
+    try:
+
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
+
+        cur.execute("SELECT fetch_status from ProductPages where product_url = ? ", (individual_product_page_for_testing['link'],))
+        status = cur.fetchone()
+
+        assert status is None
+        assert result == (None, None)
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def test_scrape_urls_happy_path(tmp_db, tmp_paths_dict, individual_product_page_for_testing):
 
     fake_site = FakeSiteConfig('dummy_wait_selector')
 
-    def fake_html_fetching(page, url, logger, wait_selector, page_loading=load_page, perform_scrolling=perform_scroll, html_extracting=extract_html):
+    def fake_html_fetching(
+            page, 
+            url, 
+            logger, 
+            wait_selector, 
+            page_loading=load_page, 
+            perform_scrolling=perform_scroll, 
+            html_extracting=extract_html):
         return 'html_content'
 
-    insert_product_url(tmp_db, individual_product_page_for_testing)
+    conn, cur = None, None
+
+    tmp_db.insert_product_url(individual_product_page_for_testing)
 
     with patch('utilities.utils.countdown_sleep_timer'):
         scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site, logger, error_logger, fetch_html=fake_html_fetching)
@@ -137,133 +149,215 @@ def test_scrape_urls_happy_path(tmp_db, tmp_paths_dict, individual_product_page_
     # assert html contains the right content 
     assert html_path.read_text() == 'html_content'
 
-    # assert fetch status in product pages is fetched
-    tmp_db['cur'].execute('SELECT fetch_status from ProductPages where product_url=?', (individual_product_page_for_testing['link'],))
-    result = tmp_db['cur'].fetchone()
+    try:
 
-    assert result[0] == 'fetched'
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
+
+        # assert fetch status in product pages is fetched
+        cur.execute('SELECT fetch_status from ProductPages where product_url=?', (individual_product_page_for_testing['link'],))
+        result = cur.fetchone()
+
+        assert result[0] == 'fetched'
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def test_scrape_urls_unhappy_path_failed_html_fetching(tmp_db, tmp_paths_dict, individual_product_page_for_testing):
 
-    fake_site = FakeSiteConfig('dummy_wait_selector') 
+    fake_site = FakeSiteConfig('dummy_wait_selector')
 
-    def fake_html_fetching( page, product_url, logger, wait_selector): 
-        return None 
+    def fake_html_fetching(page, product_url, logger, wait_selector):
+        return None
 
-    insert_product_url(tmp_db, individual_product_page_for_testing) 
+    tmp_db.insert_product_url(individual_product_page_for_testing)
 
-    with patch('utilities.utils.countdown_sleep_timer'): 
-        scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site, logger, error_logger, fetch_html=fake_html_fetching) 
+    with patch('utilities.utils.countdown_sleep_timer'):
+        scrape_product_urls(
+            tmp_db,
+            tmp_paths_dict,
+            fake_page,
+            fake_site,
+            logger,
+            error_logger,
+            fetch_html=fake_html_fetching,
+        )
 
-    html_path = tmp_paths_dict["output_dir"] / "product_1.html" 
+    html_path = tmp_paths_dict["output_dir"] / "product_1.html"
 
-    # file path exists 
-    assert not html_path.exists() 
+    assert not html_path.exists()
 
-    # assert fetch status in product pages is failed
-    tmp_db['cur'].execute('SELECT fetch_status from ProductPages where product_url=?', (individual_product_page_for_testing['link'],)) 
-    result = tmp_db['cur'].fetchone() 
-    assert result[0] == 'failed'
+    conn, cur = None, None
+
+    try:
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
+
+        cur.execute(
+            'SELECT fetch_status FROM ProductPages WHERE product_url = ?',
+            (individual_product_page_for_testing['link'],),
+        )
+        result = cur.fetchone()
+
+        assert result[0] == 'failed'
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def test_scrape_urls_unhappy_path_failed_html_writing(tmp_db, tmp_paths_dict, individual_product_page_for_testing):
 
     fake_site = FakeSiteConfig('dummy_wait_selector')
 
-    def fake_html_fetching(
-                page, 
-                product_url, 
-                logger, 
-                wait_selector):
+    def fake_html_fetching(page, product_url, logger, wait_selector):
         return 'test_html_content'
 
-    insert_product_url(tmp_db, individual_product_page_for_testing)
+    tmp_db.insert_product_url(individual_product_page_for_testing)
 
-    with (patch('crawler.crawler_product_scraper.countdown_sleep_timer'), 
-          patch("crawler.crawler_product_scraper.write_html") as mock_write_html):
-
+    with (
+        patch('crawler.crawler_product_scraper.countdown_sleep_timer'),
+        patch('crawler.crawler_product_scraper.write_html') as mock_write_html,
+    ):
         mock_write_html.return_value = False
 
-        scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site, logger, error_logger, fetch_html=fake_html_fetching)
+        scrape_product_urls(
+            tmp_db,
+            tmp_paths_dict,
+            fake_page,
+            fake_site,
+            logger,
+            error_logger,
+            fetch_html=fake_html_fetching,
+        )
 
     mock_write_html.assert_called_once()
 
     html_path = tmp_paths_dict["output_dir"] / "product_1.html"
-
-    # file path does not exist
     assert not html_path.exists()
 
-    # assert fetch status in product pages is failed
-    tmp_db['cur'].execute('SELECT fetch_status from ProductPages where product_url=?', (individual_product_page_for_testing['link'],))
-    result = tmp_db['cur'].fetchone()
+    conn, cur = None, None
 
-    assert (result[0] == 'failed')
+    try:
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
+
+        cur.execute(
+            'SELECT fetch_status FROM ProductPages WHERE product_url = ?',
+            (individual_product_page_for_testing['link'],),
+        )
+        result = cur.fetchone()
+
+        assert result[0] == 'failed'
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def test_scrape_urls_unhappy_path_no_product_url_in_db(tmp_db, tmp_paths_dict):
 
     fake_site = FakeSiteConfig('dummy_wait_selector')
 
-    def fake_html_fetching(
-                page, 
-                product_url, 
-                logger, 
-                wait_selector):
+    def fake_html_fetching(page, product_url, logger, wait_selector):
         return 'test_html_content'
 
     fake_html_fetching = Mock(fake_html_fetching)
 
-    insert_product_url(tmp_db, {'link': None})
+    tmp_db.insert_product_url({'link': None})
 
-    with (patch('crawler.crawler_product_scraper.countdown_sleep_timer'), 
-          patch("crawler.crawler_product_scraper.write_html") as mock_write_html):
-
+    with (
+        patch('crawler.crawler_product_scraper.countdown_sleep_timer'),
+        patch('crawler.crawler_product_scraper.write_html') as mock_write_html,
+    ):
         mock_write_html.return_value = False
 
-        scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site, logger, error_logger, fetch_html=fake_html_fetching)
+        scrape_product_urls(
+            tmp_db,
+            tmp_paths_dict,
+            fake_page,
+            fake_site,
+            logger,
+            error_logger,
+            fetch_html=fake_html_fetching,
+        )
 
     fake_html_fetching.assert_not_called()
     mock_write_html.assert_not_called()
 
-    # assert fetch status in product pages is failed
-    tmp_db['cur'].execute('SELECT fetch_status from ProductPages where id=1')
-    result = tmp_db['cur'].fetchone()
+    conn, cur = None, None
 
-    assert (result[0] == 'failed_unfetchable')
+    try:
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
 
+        cur.execute('SELECT fetch_status FROM ProductPages WHERE id = 1')
+        result = cur.fetchone()
+
+        assert result[0] == 'failed_unfetchable'
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def test_scrape_urls_unhappy_path_fetch_html_interrupted_by_keyboard(tmp_db, tmp_paths_dict):
 
     fake_site = FakeSiteConfig('dummy_wait_selector')
 
-    def fake_html_fetching(
-                page, 
-                product_url, 
-                logger, 
-                wait_selector):
+    def fake_html_fetching(page, product_url, logger, wait_selector):
         return 'html_content'
 
     fake_html_fetching = Mock(fake_html_fetching)
-
     fake_html_fetching.side_effect = KeyboardInterrupt()
 
-    insert_product_url(tmp_db, {'link': 'product.com'})
+    tmp_db.insert_product_url({'link': 'product.com'})
 
     with pytest.raises(KeyboardInterrupt):
-
-        with (patch('crawler.crawler_product_scraper.countdown_sleep_timer'), 
-            patch("crawler.crawler_product_scraper.write_html") as mock_write_html):
-
+        with (
+            patch('crawler.crawler_product_scraper.countdown_sleep_timer'),
+            patch('crawler.crawler_product_scraper.write_html') as mock_write_html,
+        ):
             mock_write_html.return_value = False
 
-            scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site, logger, error_logger, fetch_html=fake_html_fetching)
+            scrape_product_urls(
+                tmp_db,
+                tmp_paths_dict,
+                fake_page,
+                fake_site,
+                logger,
+                error_logger,
+                fetch_html=fake_html_fetching,
+            )
 
-            fake_html_fetching.assert_called_once()
-            mock_write_html.assert_not_called()
+    fake_html_fetching.assert_called_once()
+    mock_write_html.assert_not_called()
 
-    # assert fetch status in product pages is failed
-    tmp_db['cur'].execute('SELECT fetch_status from ProductPages where product_url=?', ('product.com',))
-    result = tmp_db['cur'].fetchone()
+    conn, cur = None, None
 
-    assert (result[0] == 'pending')
+    try:
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
+
+        cur.execute(
+            'SELECT fetch_status FROM ProductPages WHERE product_url = ?',
+            ('product.com',),
+        )
+        result = cur.fetchone()
+
+        assert result[0] == 'pending'
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def test_scrape_urls_unhappy_path_fetch_html_produces_exception(tmp_db, tmp_paths_dict):
 
@@ -277,48 +371,63 @@ def test_scrape_urls_unhappy_path_fetch_html_produces_exception(tmp_db, tmp_path
 
     fake_site = FakeSiteConfig('dummy_wait_selector')
 
-    def fake_html_fetching(
-                page, 
-                product_url, 
-                logger, 
-                wait_selector):
+    def fake_html_fetching(page, product_url, logger, wait_selector):
         return 'html_content'
 
-    fake_html_fetching = Mock(fake_html_fetching, side_effect= Exception())
-
+    fake_html_fetching = Mock(fake_html_fetching, side_effect=Exception())
     mock_error_logger = Mock(error_logger)
 
-    insert_product_url(tmp_db, {'link': 'product.com'})
-    #insert_product_url(tmp_db, {'link': 'product_2.com'})
+    tmp_db.insert_product_url({'link': 'product.com'})
 
-    with (patch('crawler.crawler_product_scraper.countdown_sleep_timer'), 
-        patch("crawler.crawler_product_scraper.write_html") as mock_write_html
+    with (
+        patch('crawler.crawler_product_scraper.countdown_sleep_timer'),
+        patch('crawler.crawler_product_scraper.write_html') as mock_write_html,
     ):
         mock_write_html.return_value = False
 
-        scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site, logger, mock_error_logger, fetch_html=fake_html_fetching)
+        scrape_product_urls(
+            tmp_db,
+            tmp_paths_dict,
+            fake_page,
+            fake_site,
+            logger,
+            mock_error_logger,
+            fetch_html=fake_html_fetching,
+        )
 
-    # assert right call count
     assert fake_html_fetching.call_count == 1
     assert mock_write_html.call_count == 0
+    mock_error_logger.error.assert_called_once_with(
+        'Unhandled error in product scraper',
+        exc_info=True,
+    )
 
-    # assert error logger is called with x params
-    mock_error_logger.error.assert_called_once_with("Unhandled error in product scraper", exc_info=True)
+    conn, cur = None, None
 
-    # assert fetch status in product pages is failed
-    tmp_db['cur'].execute('SELECT fetch_status from ProductPages where product_url=?', ('product.com',))
+    try:
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
 
-    result = tmp_db['cur'].fetchone()
+        cur.execute(
+            'SELECT fetch_status FROM ProductPages WHERE product_url = ?',
+            ('product.com',),
+        )
+        result = cur.fetchone()
 
-    assert (result[0] == 'failed')
+        assert result[0] == 'failed'
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def test_no_product_url_does_not_impede_loop_from_continuing(tmp_db, individual_product_page_for_testing, tmp_paths_dict):
 
     mock_fake_html_fetching = create_autospec(process_single_url)
 
-    insert_product_url(tmp_db, {'link': None})
-    insert_product_url(tmp_db, individual_product_page_for_testing)
-
+    tmp_db.insert_product_url({'link': None})
+    tmp_db.insert_product_url(individual_product_page_for_testing)
     with patch('crawler.crawler_product_scraper.countdown_sleep_timer'), patch('crawler.crawler_product_scraper.write_html') as mock_write_html:
 
         mock_fake_html_fetching.side_effect = ['test_html_content']
@@ -344,52 +453,63 @@ def test_scrape_urls_unhappy_path_fetch_html_produces_exception_but_continues(tm
 
     fake_site = FakeSiteConfig('dummy_wait_selector')
 
-    def fake_html_fetching(
-                page, 
-                product_url, 
-                logger, 
-                wait_selector):
+    def fake_html_fetching(page, product_url, logger, wait_selector):
         return 'html_content'
 
     fake_html_fetching = Mock(fake_html_fetching)
-
-    fake_html_fetching.side_effect = [Exception(), "html_content"]
+    fake_html_fetching.side_effect = [Exception(), 'html_content']
 
     mock_error_logger = Mock(error_logger)
 
-    insert_product_url(tmp_db, {'link': 'product.com'})
-    insert_product_url(tmp_db, {'link': 'product_2.com'})
+    tmp_db.insert_product_url({'link': 'product.com'})
+    tmp_db.insert_product_url({'link': 'product_2.com'})
 
-    mock_error_logger.assert_called_with
+    with patch('crawler.crawler_product_scraper.countdown_sleep_timer'):
+        scrape_product_urls(
+            tmp_db,
+            tmp_paths_dict,
+            fake_page,
+            fake_site,
+            logger,
+            mock_error_logger,
+            fetch_html=fake_html_fetching,
+        )
 
-    with (patch('crawler.crawler_product_scraper.countdown_sleep_timer'),
-    ):
-
-        scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site, logger, mock_error_logger, fetch_html=fake_html_fetching)
-
-    # assert right call count
     assert fake_html_fetching.call_count == 2
+    mock_error_logger.error.assert_called_once_with(
+        'Unhandled error in product scraper',
+        exc_info=True,
+    )
 
-    # assert error logger is called with x params
-    mock_error_logger.error.assert_called_once_with("Unhandled error in product scraper", exc_info=True)
-
-    # assert html file path and content for url 2
     html_path = tmp_paths_dict["output_dir"] / "product_1.html"
-
-    # file path exists
     assert html_path.exists()
-
-    # assert html contains the right content 
     assert html_path.read_text() == 'html_content'
 
-    # assert fetch status in product pages is failed
-    tmp_db['cur'].execute('SELECT product_url, fetch_status from ProductPages where product_url=?', ('product.com',))
-    result = tmp_db['cur'].fetchone()
-    assert (result == ('product.com', 'failed'))
+    conn, cur = None, None
 
-    tmp_db['cur'].execute('SELECT product_url, fetch_status from ProductPages where product_url=?', ('product_2.com',))
-    result = tmp_db['cur'].fetchone()
-    assert (result == ('product_2.com', 'fetched'))
+    try:
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
+
+        cur.execute(
+            'SELECT product_url, fetch_status FROM ProductPages WHERE product_url = ?',
+            ('product.com',),
+        )
+        result = cur.fetchone()
+        assert result == ('product.com', 'failed')
+
+        cur.execute(
+            'SELECT product_url, fetch_status FROM ProductPages WHERE product_url = ?',
+            ('product_2.com',),
+        )
+        result = cur.fetchone()
+        assert result == ('product_2.com', 'fetched')
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 def test_scrape_urls_special_wait_time_is_triggered(tmp_db, tmp_paths_dict):
 
@@ -399,8 +519,7 @@ def test_scrape_urls_special_wait_time_is_triggered(tmp_db, tmp_paths_dict):
 
     fake_site_config = FakeSiteConfig('dummy_wait_selector')
 
-    insert_product_url(tmp_db, {'link': 'product.com'})
-
+    tmp_db.insert_product_url({'link': 'product.com'})
     with (patch('crawler.crawler_product_scraper.countdown_sleep_timer') as mock_countdown_sleep_timer, patch('crawler.crawler_product_scraper.occasional_long_pause_to_simulate_browsing') as fake_occasional_pause, patch('crawler.crawler_product_scraper.random.uniform') as mock_random_uniform):
 
         mock_random_uniform.return_value = 6
@@ -450,8 +569,7 @@ def test_scrape_urls_special_wait_time_is_not_triggered(tmp_db, tmp_paths_dict):
 
     fake_site_config = FakeSiteConfig('dummy_wait_selector')
 
-    insert_product_url(tmp_db, {'link': 'product.com'})
-
+    tmp_db.insert_product_url({'link': 'product.com'})
     with (patch('crawler.crawler_product_scraper.countdown_sleep_timer') as mock_countdown_sleep_timer,
     patch('crawler.crawler_product_scraper.random.uniform') as mock_random_uniform):
 
@@ -481,120 +599,115 @@ def test_page_counter_does_not_advance(tmp_db, tmp_paths_dict):
     """
 
     fake_html_fetching_mock = create_autospec(process_single_url)
-
     fake_html_fetching_mock.side_effect = [None, 'html_content']
 
     fake_site_config = FakeSiteConfig('dummy_wait_selector')
-    
-    insert_product_url(tmp_db, {'link': 'product.com'})
-    insert_product_url(tmp_db, {'link': 'product_2.com'})
 
-    with (patch('crawler.crawler_product_scraper.countdown_sleep_timer')):
+    tmp_db.insert_product_url({'link': 'product.com'})
+    tmp_db.insert_product_url({'link': 'product_2.com'})
 
-        scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site_config, logger, error_logger, page_counter=1, fetch_html=fake_html_fetching_mock)
+    with patch('crawler.crawler_product_scraper.countdown_sleep_timer'):
+        scrape_product_urls(
+            tmp_db,
+            tmp_paths_dict,
+            fake_page,
+            fake_site_config,
+            logger,
+            error_logger,
+            page_counter=1,
+            fetch_html=fake_html_fetching_mock,
+        )
 
-    tmp_db['cur'].execute('SELECT fetch_status FROM ProductPages WHERE product_url = ?', ('product.com',))
+    conn, cur = None, None
 
-    result = tmp_db['cur'].fetchone()
+    try:
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
 
-    assert result[0] == 'failed'
+        cur.execute(
+            'SELECT fetch_status FROM ProductPages WHERE product_url = ?',
+            ('product.com',),
+        )
+        result = cur.fetchone()
+        assert result[0] == 'failed'
 
-    tmp_db['cur'].execute('SELECT fetch_status FROM ProductPages WHERE product_url = ?', ('product_2.com',))
+        cur.execute(
+            'SELECT fetch_status FROM ProductPages WHERE product_url = ?',
+            ('product_2.com',),
+        )
+        result = cur.fetchone()
+        assert result[0] == 'fetched'
 
-    result = tmp_db['cur'].fetchone()
-
-    assert result[0] == 'fetched'
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
     html_path = tmp_paths_dict["output_dir"] / "product_1.html"
-
     assert html_path.exists()
     assert html_path.read_text() == 'html_content'
 
-def test_scrape_urls_happy_path_two_urls(tmp_db, tmp_paths_dict, tmp_path, connection_number_two_on_same_db):
+def test_scrape_urls_happy_path_two_urls(tmp_db, tmp_paths_dict):
 
     fake_site = FakeSiteConfig('dummy_wait_selector')
 
-    fake_html_fetching : Mock = create_autospec(process_single_url)
+    fake_html_fetching: Mock = create_autospec(process_single_url)
     fake_html_fetching.return_value = 'html_content'
 
-    expected_calls = [call(fake_page, "product_1.com", logger, wait_selector="dummy_wait_selector"), call(fake_page, "product_2.com", logger, wait_selector="dummy_wait_selector"),]
+    expected_calls = [
+        call(fake_page, 'product_1.com', logger, wait_selector='dummy_wait_selector'),
+        call(fake_page, 'product_2.com', logger, wait_selector='dummy_wait_selector'),
+    ]
 
-    insert_product_url(tmp_db, {'link': 'product_1.com'})
-    insert_product_url(tmp_db, {'link': 'product_2.com'} )
+    tmp_db.insert_product_url({'link': 'product_1.com'})
+    tmp_db.insert_product_url({'link': 'product_2.com'})
 
     with patch('utilities.utils.countdown_sleep_timer'):
-        scrape_product_urls(tmp_db, tmp_paths_dict, fake_page, fake_site, logger, error_logger, fetch_html=fake_html_fetching)
+        scrape_product_urls(
+            tmp_db,
+            tmp_paths_dict,
+            fake_page,
+            fake_site,
+            logger,
+            error_logger,
+            fetch_html=fake_html_fetching,
+        )
 
     html_path = tmp_paths_dict["output_dir"] / "product_1.html"
     html_path_2 = tmp_paths_dict["output_dir"] / "product_2.html"
 
-    # assert call args
     assert fake_html_fetching.call_args_list == expected_calls
 
-    # file path exists
     assert html_path.exists()
     assert html_path_2.exists()
-
-    # assert html contains the right content 
     assert html_path.read_text() == 'html_content'
     assert html_path_2.read_text() == 'html_content'
 
-    # assert fetch status in product pages is fetched for product 1
-    tmp_db['cur'].execute('SELECT fetch_status from ProductPages where product_url=?', ('product_1.com',))
-    result = tmp_db['cur'].fetchone()
+    # Independent sqlite3 connection verifies the committed state.
+    conn, cur = None, None
 
-    assert result[0] == 'fetched'
+    try:
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
 
-    # assert fetch status in product pages is fetched for product 2
-    tmp_db['cur'].execute('SELECT fetch_status from ProductPages where product_url=?', ('product_2.com',))
-    result = tmp_db['cur'].fetchone()
+        cur.execute(
+            'SELECT fetch_status FROM ProductPages WHERE product_url = ?',
+            ('product_1.com',),
+        )
+        result = cur.fetchone()
+        assert result[0] == 'fetched'
 
-    assert result[0] == 'fetched'
+        cur.execute(
+            'SELECT fetch_status FROM ProductPages WHERE product_url = ?',
+            ('product_2.com',),
+        )
+        result = cur.fetchone()
+        assert result[0] == 'fetched'
 
-    # assert status is commited using a second db connection
-    connection_number_two_on_same_db["cur"].execute(
-        "SELECT fetch_status FROM ProductPages WHERE product_url=?",
-        ("product_2.com",)
-    )
-    result_2 = connection_number_two_on_same_db["cur"].fetchone()
-
-    assert result_2[0] == "fetched"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
-
-
-
-
-
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
