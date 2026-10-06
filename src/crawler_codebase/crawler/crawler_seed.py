@@ -69,13 +69,12 @@ def db_insert_paginated_urls(
 
             try:
 
-                db.insert_url(list_of_urls[i], date)
+                with db.transaction():
+
+                    db.insert_url(list_of_urls[i], date)
+                    db.update_url_status(list_of_urls[i], status="pending")
 
                 logger.info(f"{page_counter}. Inserted URL: {list_of_urls[i]}")
-
-                db.update_url_status(list_of_urls[i], status="pending")
-
-                logger.info(f"{page_counter}. Marked pending status for URL: {list_of_urls[i]}")
 
                 page_counter += 1
 

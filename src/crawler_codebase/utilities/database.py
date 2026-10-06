@@ -94,25 +94,25 @@ class Database:
         # comportamiento de __enter__
         with self._lock:
             outermost = not self._in_transaction # outermost significa “la transacción más externa”
-        if outermost:
-            self._discard_uncommitted_product_update()
-            self._in_transaction = True
-        try:
-            yield self # cede el objeto DB para que las operaciones individuales stackeadas en el context manager realicen sus acciones
-        # comportamiento de __exit__
-        except Exception:
-            if outermost: 
-                #sólo hacer rollback si la llamada a transaction está sola, o es la más externa de unas llamadas en varios context manager stackeados
-                self._in_transaction = False
-                self._has_uncommitted_product_update = False
-                self._conn.rollback()
-            raise
-        else:
             if outermost:
-                #sólo hacer commit si la llamada a transaction está sola, o es la más externa de unas llamadas en varios context manager stackeados
-                self._in_transaction = False
-                self._has_uncommitted_product_update = False
-                self._conn.commit()
+                self._discard_uncommitted_product_update()
+                self._in_transaction = True
+            try:
+                yield self # cede el objeto DB para que las operaciones individuales stackeadas en el context manager realicen sus acciones
+            # comportamiento de __exit__
+            except Exception:
+                if outermost: 
+                    #sólo hacer rollback si la llamada a transaction está sola, o es la más externa de unas llamadas en varios context manager stackeados
+                    self._in_transaction = False
+                    self._has_uncommitted_product_update = False
+                    self._conn.rollback()
+                raise
+            else:
+                if outermost:
+                    #sólo hacer commit si la llamada a transaction está sola, o es la más externa de unas llamadas en varios context manager stackeados
+                    self._in_transaction = False
+                    self._has_uncommitted_product_update = False
+                    self._conn.commit()
 
     def commit(self) -> None:
         with self._lock:
@@ -323,8 +323,8 @@ class Database:
             WHERE status = 'in_progress'
             '''
             )
-        if not self._in_transaction:
-            self._conn.commit()
+            if not self._in_transaction:
+                self._conn.commit()
 
 
     def reset_stuck_jobs(self) -> None:

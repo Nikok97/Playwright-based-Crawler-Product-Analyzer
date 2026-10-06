@@ -69,9 +69,11 @@ def parse_product_html_files(
 
             date = now_with_hours()
 
-            db.update_product_data(row_id, product, date)
+            with db.transaction():
 
-            db.update_parse_status(row_id, status='parsed_succeeded')
+                db.update_product_data(row_id, product, date)
+
+                db.update_parse_status(row_id, status='parsed_succeeded')
 
             logger.info(f"Product {counter_of_products} parsed: {product_name}")
 
