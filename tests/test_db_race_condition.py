@@ -85,4 +85,11 @@ def test_two_workers_race_condition(tmp_db):
 
     finally:
 
-        pass
+        if cur1:
+            cur1.close()
+        if cur2:
+            cur2.close()
+        if conn1:
+            conn1.close()
+        if conn2:
+            conn2.close()

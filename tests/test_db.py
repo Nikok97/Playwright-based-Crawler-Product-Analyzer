@@ -77,6 +77,9 @@ def test_unique_db_insertion_of_url(tmp_db):
 
     assert count == 1
 
+    cur.close()
+    conn.close()
+
 def test_already_pending_or_fetched_url_no_url_in_db(tmp_db):
 
     test_url = 'www.test.com'
