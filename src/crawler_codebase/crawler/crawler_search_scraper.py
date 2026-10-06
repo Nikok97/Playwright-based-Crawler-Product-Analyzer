@@ -15,8 +15,10 @@ def write_html_to_disk(url_id: int | None, paths_dict: dict[str, Path], url: str
     #Write HTML to disk
     filename = f"page_{url_id}.html"
     write_html(paths_dict['data_dir'], filename, html)
-    db.update_filename_for_url(url, filename)
-    db.update_url_status(url, status='fetched')
+
+    with db.transaction():
+        db.update_filename_for_url(url, filename)
+        db.update_url_status(url, status='fetched')
 
 def simulate_natural_browsing_with_occasional_pause(page_counter: int):
 
