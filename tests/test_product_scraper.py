@@ -336,8 +336,8 @@ def test_scrape_urls_unhappy_path_fetch_html_interrupted_by_keyboard(tmp_db, tmp
                 fetch_html=fake_html_fetching,
             )
 
-    fake_html_fetching.assert_called_once()
-    mock_write_html.assert_not_called()
+        fake_html_fetching.assert_called_once()
+        mock_write_html.assert_not_called()
 
     conn, cur = None, None
 
@@ -428,6 +428,7 @@ def test_no_product_url_does_not_impede_loop_from_continuing(tmp_db, individual_
 
     tmp_db.insert_product_url({'link': None})
     tmp_db.insert_product_url(individual_product_page_for_testing)
+
     with patch('crawler.crawler_product_scraper.countdown_sleep_timer'), patch('crawler.crawler_product_scraper.write_html') as mock_write_html:
 
         mock_fake_html_fetching.side_effect = ['test_html_content']
@@ -438,7 +439,7 @@ def test_no_product_url_does_not_impede_loop_from_continuing(tmp_db, individual_
 
     mock_fake_html_fetching.assert_called_once()
 
-    mock_write_html.assert_called_once_with(tmp_paths_dict['output_dir'], 'product_1.html', 'test_html_content')
+    mock_write_html.assert_called_once_with(tmp_paths_dict['output_dir'], 'product_2.html', 'test_html_content')
 
 def test_scrape_urls_unhappy_path_fetch_html_produces_exception_but_continues(tmp_db, tmp_paths_dict):
 
@@ -481,7 +482,7 @@ def test_scrape_urls_unhappy_path_fetch_html_produces_exception_but_continues(tm
         exc_info=True,
     )
 
-    html_path = tmp_paths_dict["output_dir"] / "product_1.html"
+    html_path = tmp_paths_dict["output_dir"] / "product_2.html"
     assert html_path.exists()
     assert html_path.read_text() == 'html_content'
 
@@ -528,7 +529,7 @@ def test_scrape_urls_special_wait_time_is_triggered(tmp_db, tmp_paths_dict):
 
     assert fake_occasional_pause.call_count == 1
 
-    html_path = tmp_paths_dict["output_dir"] / "product_5.html"
+    html_path = tmp_paths_dict["output_dir"] / "product_1.html"
 
     assert html_path.exists()
     assert html_path.read_text() == 'html_content'
@@ -644,7 +645,7 @@ def test_page_counter_does_not_advance(tmp_db, tmp_paths_dict):
         if conn:
             conn.close()
 
-    html_path = tmp_paths_dict["output_dir"] / "product_1.html"
+    html_path = tmp_paths_dict["output_dir"] / "product_2.html"
     assert html_path.exists()
     assert html_path.read_text() == 'html_content'
 
@@ -711,3 +712,59 @@ def test_scrape_urls_happy_path_two_urls(tmp_db, tmp_paths_dict):
         if conn:
             conn.close()
 
+def test_filenaming_of_html_uses_row_ids_and_not_page_counter(tmp_db, tmp_paths_dict):
+
+    fake_site = FakeSiteConfig('dummy_wait_selector')
+    fake_html_fetching: Mock = create_autospec(process_single_url)
+    fake_html_fetching_round_2: Mock = create_autospec(process_single_url)
+
+    tmp_db.insert_product_url({'link': 'product_1.com'})
+
+    fake_html_fetching.return_value = 'html_content'
+
+    try:
+
+        with patch('utilities.utils.countdown_sleep_timer'):
+            scrape_product_urls(
+                tmp_db,
+                tmp_paths_dict,
+                fake_page,
+                fake_site,
+                logger,
+                error_logger,
+                fetch_html=fake_html_fetching,
+            )
+
+        html_path = tmp_paths_dict["output_dir"] / "product_1.html"
+
+        assert html_path.exists()
+        assert html_path.read_text() == 'html_content'
+
+    finally:
+        pass
+
+    # 2nd round
+
+    tmp_db.insert_product_url({'link': 'product_2.com'})
+    fake_html_fetching_round_2.return_value = 'html_content_2'
+
+    try:
+        with patch('utilities.utils.countdown_sleep_timer'):
+            scrape_product_urls(
+                tmp_db,
+                tmp_paths_dict,
+                fake_page,
+                fake_site,
+                logger,
+                error_logger,
+                fetch_html=fake_html_fetching_round_2,
+            )
+
+        html_path_2 = tmp_paths_dict["output_dir"] / "product_2.html"
+
+        assert html_path.read_text() == 'html_content' # this checks that the result from the first turn was not overwritten
+        assert html_path_2.exists()
+        assert html_path_2.read_text() == 'html_content_2'
+
+    finally:
+        pass

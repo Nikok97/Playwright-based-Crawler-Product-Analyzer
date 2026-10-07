@@ -40,11 +40,21 @@ def specific_site_setup(SITE_REGISTRY: dict, site_name: str) -> tuple:
 class WebsiteToScrape(ABC):
 
     selector_to_start_process : str
+    seed_urls : list
+    pagination_mode : str
+    wait_selector : str
+
+    @abstractmethod
+    def individual_product_data_extraction(self, soup : Tag) -> dict:
+        pass
+
+    @abstractmethod
+    def build_pagination_url(self, seed_url: str, page_number: int) -> str:
+        pass
     
     @abstractmethod
     def product_extraction(self, soup: Tag) -> list[dict] | None:
         pass
-    pass
 
 #################################
     
@@ -74,11 +84,11 @@ class BooksToScrape(WebsiteToScrape):
     # ---------------------------
     # URL Construction
     # ---------------------------
-    def build_pagination_url(self, seed_url: str, i: int) -> str:
+    def build_pagination_url(self, seed_url: str, page_number: int) -> str:
         """
         Returns a properly formatted BooksToScrape pagination URL.
         """
-        paginated_url = f"{seed_url}catalogue/page-{i}.html"
+        paginated_url = f"{seed_url}catalogue/page-{page_number}.html"
 
         return paginated_url
     
@@ -214,11 +224,11 @@ class Amazon(WebsiteToScrape):
     # ---------------------------
     # URL Construction
     # ---------------------------
-    def build_pagination_url(self, seed_url: str, i: int) -> str:
+    def build_pagination_url(self, seed_url: str, page_number: int) -> str:
         """
         Returns a properly formatted Amazon pagination URL.
         """
-        paginated_url = f"{seed_url}&page={i}"
+        paginated_url = f"{seed_url}&page={page_number}"
 
         return paginated_url
     
@@ -409,13 +419,13 @@ class MercadoLibre(WebsiteToScrape):
             finally:
                 browser.close()
 
-    def build_pagination_url(self, canonical_url: str, page_number: int) -> str:
+    def build_pagination_url(self, seed_url: str, page_number: int) -> str:
         "Algorithmic Mercado libre URL generator."
         try:
-            clean_canonical_url = canonical_url.split("_Desde_")[0]
+            clean_canonical_url = seed_url.split("_Desde_")[0]
         except Exception as e:
             print(f"Unable to clean provided seed URL for reason: {e}")
-            clean_canonical_url = canonical_url
+            clean_canonical_url = seed_url
         if page_number == 1:
             return clean_canonical_url
         ITEMS_PER_PAGE = 49

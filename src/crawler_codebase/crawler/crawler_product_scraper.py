@@ -65,7 +65,7 @@ def scrape_product_urls(
                 continue
             
             # Write HTML to disk
-            filename = f'product_{page_counter}.html'
+            filename = f'product_{row_id}.html'
             
             if write_html(paths_dict['output_dir'], filename, html):
 

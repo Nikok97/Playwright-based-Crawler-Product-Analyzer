@@ -216,6 +216,6 @@ class ProductLifecycleMachineFailedCases(RuleBasedStateMachine):
         self.db.close()
         self.temp_dir.cleanup()
 
-#TestProductLifecycleMachine = ProductLifecycleMachine.TestCase
+TestProductLifecycleMachine = ProductLifecycleMachine.TestCase
 
 TestProductLifecycleMachineFailedCases = ProductLifecycleMachineFailedCases.TestCase
