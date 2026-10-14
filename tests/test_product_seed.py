@@ -4,7 +4,6 @@ import sqlite3
 
 from crawler.crawler_seed import db_insert_paginated_urls
 from utilities.database import Database
-from utilities.utils import now_with_hours
 
 tmp_logger = logging.getLogger("test_logger")
 error_logger = logging.getLogger("test_error_logger")
