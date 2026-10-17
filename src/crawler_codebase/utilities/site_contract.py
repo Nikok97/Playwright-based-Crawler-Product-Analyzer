@@ -71,13 +71,15 @@ def _implements(site_config: "WebsiteToScrape", method_name: str) -> bool:
     """
     True when the adapter overrides the given non-supported-by-default method.
     """
-    implementation = getattr(type(site_config), method_name, None)
+    implementation = getattr(type(site_config), method_name, None) #implementation = (class of the instance, method of that class, default None if no method found)
     return implementation is not getattr(WebsiteToScrape, method_name)
 
 
 def _has_selector(site_config: "WebsiteToScrape", attribute_name: str) -> bool:
     """
-    True when the adapter exposes a usable selector under the given name.
+    True when the adapter exposes a usable selector under the given name. 
+    
+    _has_selector() returns True when the adapter instance has an attribute with that name, the value is a string, and after trimming whitespace it is not empty.
     """
     selector = getattr(site_config, attribute_name, None)
     return isinstance(selector, str) and bool(selector.strip())
@@ -116,8 +118,10 @@ class WebsiteToScrape(ABC):
         """
         Makes the contract enforceable: adapters are validated on construction.
         """
+        # This preserves the rest of the inheritance chain’s handling of the __init__subclass method. (POINT FOR FURTHER STUDY)
         super().__init_subclass__(**kwargs)
 
+        # cls.__dict__ is a dictionary containing the attributes defined directly on that class. Here I am getting only the __init__ of the class.
         own_init = cls.__dict__.get("__init__")
 
         if own_init is None or getattr(own_init, "_validates_site_contract", False):
@@ -129,15 +133,22 @@ class WebsiteToScrape(ABC):
 
             # Only the outermost __init__ of the instantiated class validates,
             # so that adapters calling super().__init__() are checked once.
+            # In other words, when nested wrapped __init__ methods run because of inheritance and super().__init__(), only the wrapper belonging to the actual class of the instance performs validation.
+            # The idea is:
+            # parent init logic may still run
+            # but contract validation should happen once
+            # for the actual adapter instance being created
             if type(self).__init__ is cls.__init__:
                 self.validate_contract()
 
         __init__._validates_site_contract = True  # type: ignore[attr-defined]
+        # Update the reference of the class' own init so it references the newly created init
         cls.__init__ = __init__  # type: ignore[assignment]
 
     # ---------------------------
     # Capabilities
     # ---------------------------
+    # Frozen set is important to avoid modifications of a class' capabilities by any other part of the program.
     @classmethod
     def capabilities(cls) -> frozenset:
         """
@@ -185,7 +196,7 @@ class WebsiteToScrape(ABC):
                     f"[{site_name}] Declared an unknown capability: {capability!r}"
                 )
 
-        # A declared pagination mode is only usable with its own capability. It determines which pagination capability the declared pagination mode implies, then checks whether the adapter actually declared that capability; if not, it raises SiteCapabilityError.
+        # This section determines which pagination capability the declared pagination mode implies, then checks whether the adapter actually declared that capability; if not, it raises SiteCapabilityError.
         pagination_capability = self.pagination_capability()
         if not self.supports(pagination_capability):
             raise SiteCapabilityError(
@@ -193,14 +204,17 @@ class WebsiteToScrape(ABC):
                 f"but not the required capability {pagination_capability.value}."
             )
 
+        # The tuples of requirements mean: (1. capability being claimed, 2. method that should exist, 3. function used to verify it)
         requirements = (
-            (SiteCapability.ALGORITHMIC_PAGINATION, "build_pagination_url", _implements),
+            #for ALGORITHMIC_PAGINATION the implementation of build_pagination_url method is needed. does this adapter's class implement it, overriding the default implementation of websitetoscrape (parent class) or not? 
+            (SiteCapability.ALGORITHMIC_PAGINATION, "build_pagination_url", _implements), 
             (SiteCapability.DYNAMIC_PAGINATION, "discover_first_paginated_url", _implements),
             (SiteCapability.PRODUCT_PAGE_PARSING, "individual_product_data_extraction", _implements),
             (SiteCapability.SEARCH_PAGE_READINESS, "selector_to_start_process", _has_selector),
             (SiteCapability.PRODUCT_PAGE_READINESS, "wait_selector", _has_selector),
         )
 
+        # For each declared capability requirement, if the adapter claims to support that capability but fails the corresponding implementation check, raise SiteCapabilityError
         for capability, member, is_provided in requirements:
             if self.supports(capability) and not is_provided(self, member):
                 raise SiteCapabilityError(
@@ -224,6 +238,17 @@ class WebsiteToScrape(ABC):
     # ---------------------------
     # Pagination
     # ---------------------------
+
+    #  base method
+    # -> exists as part of the common interface
+    # -> default behavior = "unsupported"
+
+    # adapter declares capability
+    # -> must override that method
+
+    # adapter does not declare capability
+    # -> inherited failing implementation is acceptable
+    
     def build_pagination_url(self, base_url: str, page_number: int) -> str:
         """
         Returns the URL of the given search results page.
