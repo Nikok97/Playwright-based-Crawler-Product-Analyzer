@@ -102,7 +102,7 @@ def countdown_sleep_timer(waiting_time: float):
     print() # move to clean line
     print("Waiting… done.            ")
 
-def load_page(page: Page, url: str, wait_selector: str, max_attempts: int=5) -> bool:
+def load_page(page: Page, url: str, wait_selector: str, max_attempts: int=2) -> bool:
     """
     Tries to load the URL and waits for the required selector.
     Returns True if the page is ready for processing.
@@ -111,7 +111,7 @@ def load_page(page: Page, url: str, wait_selector: str, max_attempts: int=5) -> 
     
     success_flag = False
 
-    for attempt in range(1, max_attempts):
+    for attempt in range(1, max_attempts + 1):
 
         try:
             
@@ -196,10 +196,18 @@ def extract_html(page: Page, url: str) -> str | None:
             exc_info=True)
         return None
 
-def process_single_url(page: Page, url: str, logger: logging.Logger, wait_selector: str, page_loading=load_page, perform_scrolling=perform_scroll, html_extracting=extract_html) -> str | None:
+def process_single_url(
+        page: Page, 
+        url: str, 
+        logger: logging.Logger, 
+        wait_selector: str, 
+        page_loading=load_page, 
+        perform_scrolling=perform_scroll, 
+        html_extracting=extract_html
+    ) -> str | None:
 
     #Navigation phase
-    if not page_loading(page, url, wait_selector, max_attempts=2):
+    if not page_loading(page, url, wait_selector, max_attempts=3):
         return None
     logger.info(f"Target JavaScript selector detected in URL: {url}")
 
@@ -219,7 +227,11 @@ def process_single_url(page: Page, url: str, logger: logging.Logger, wait_select
     else:
         return html
 
-def write_html(output_directory: Path, filename: str, html: str) -> bool:
+def write_html(
+    output_directory: Path, 
+    filename: str, 
+    html: str
+) -> bool:
 
     """
     Writes HTML to disk.

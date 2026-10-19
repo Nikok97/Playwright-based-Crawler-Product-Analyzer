@@ -3,7 +3,9 @@ import re
 from bs4 import BeautifulSoup
 from pathlib import Path
 from logging import Logger
-from utilities.specific_sites import WebsiteToScrape
+
+from utilities.site_contract import WebsiteToScrape
+from utilities.database import Database
 
 def list_of_html_files_compiler(directory: Path) -> list | None:
 
@@ -26,25 +28,10 @@ def list_of_html_files_compiler(directory: Path) -> list | None:
         key=lambda f: int(page_pattern.match(f).group(1))  # type: ignore
     )
 
-def insert_product_url(db: dict, individual_product: dict, url_id: int, error_logger) -> bool:
-    """Stores product information related to a product URL in the database.
-    """
-    try:
-        db["cur"].execute('''
-        INSERT OR IGNORE INTO ProductPages (product_url, fetch_status)
-        VALUES ( ?, ?)
-        ''', (individual_product["link"], "pending"))
-        db["conn"].commit()
-        return True
-    except Exception as e:
-        error_logger.error(f"Unknown DB error for {url_id}: {e}")
-        return False
-
-
 ########################################################
 
 def run_crawler_search_html_parser(
-        db: dict, 
+        db: Database, 
         specific_site_config,
         paths_dict: dict, 
         logger,
@@ -74,7 +61,7 @@ def crawler_search_html_parser(
         list_of_html_files: list,
         paths_dict: dict,
         specific_site_config : WebsiteToScrape,
-        db : dict,
+        db : Database,
         logger: Logger,
         error_logger: Logger
     ):
@@ -101,13 +88,16 @@ def crawler_search_html_parser(
 
                 for idx, individual_product in enumerate(products_of_page, start=1):
 
-                    if insert_product_url(db, individual_product, url_id, error_logger):
-                        
+                    # Db insertion of individual products
+                    try:
+                        db.insert_product_url(individual_product)
+
                         logger.info(f"Inserted product {idx} of {total_number_of_products_in_page} for URL {url_id}")
-                        
-                    else:
-                        logger.info(
-                            f"Failed to insert product {idx} of {total_number_of_products_in_page} for URL {url_id}")
+
+                    except Exception as e:
+                        error_logger.error(
+                        f"Failed to insert product {idx} of {total_number_of_products_in_page} for URL {url_id} for cause: {e}", exc_info=True)
+
         except Exception:
             error_logger.error(f"Unhandled exception for {file}", exc_info=True)
 

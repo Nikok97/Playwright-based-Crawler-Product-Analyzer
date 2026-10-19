@@ -47,7 +47,8 @@ Thumbs.db
 *.log
 *.toml
 
-Testing_Learning.md
-Testing_Learning_METAPROMPT_UPDATED.txt
-work_results.json
 .hypothesis
+model_b.patch.diff
+model_B_explanation.md
+Testing_Learning.md
+OLD_specific_sites.py

@@ -3,6 +3,7 @@ import logging
 from bs4 import BeautifulSoup
 from pathlib import Path
 from utilities.utils import now_with_hours
+from utilities.database import Database
 
 def create_folder_with_date_of_parse_in_output_dir(paths_dict) -> Path:
     #Create folder with the date of the parse in data/output dir
@@ -12,90 +13,11 @@ def create_folder_with_date_of_parse_in_output_dir(paths_dict) -> Path:
 
     return html_archiving_folder
 
-def update_parse_status(row_id: int, db: dict, status: str):
-    """
-    Updates parse status of a product page in the DB with parameter status.
-    """
-    db["cur"].execute(
-        'UPDATE ProductPages SET parse_status = ? WHERE id = ?',
-        (status, row_id)
-    )
-
-def get_fetched_product(db: dict) -> tuple[int, str, str, str] | tuple[None, None, None, None]:
-    """
-    Gets 1 product webpage (id, product_url) from ProductPages table that has been fetched, but not parsed.
-    """
-    db["cur"].execute(
-        '''
-        SELECT id, product_url, product_name, filename
-        FROM ProductPages
-        WHERE fetch_status = ?
-        AND parse_status IS NULL
-        ORDER BY id
-        LIMIT 1
-        ''',
-        ('fetched',)
-    )
-    row = db["cur"].fetchone()
-    
-    if row is None:
-        return None, None, None, None
-
-    row_id, product_url, product_name, filename = row
-
-    # Lock immediately
-    db["cur"].execute(
-        'UPDATE ProductPages SET parse_status = ? WHERE id = ?',
-        ('parsing', row_id)
-    )
-
-    db["conn"].commit()
-    #print(row)
-    return row_id, product_url, product_name, filename
-
-def update_product_data(db: dict, row_id: int, product: dict, date: str) -> bool:
-    db["cur"].execute(
-        '''
-        UPDATE ProductPages
-        SET
-            product_name = ?,
-            currency = ?,
-            price = ?,
-            product_code = ?,
-            reviews = ?,
-            images = ?,
-            fetched_at = ?
-        WHERE id = ?
-        ''',
-        (
-            product["slug"],
-            product["currency"],
-            product["price"],
-            product["product_code"],
-            product['reviews'],
-            product['images'][0],
-            date,
-            row_id
-        )
-    )
-    return True
-
-
-def reset_stuck_parsing_jobs(db: dict):
-    db["cur"].execute(
-        '''
-        UPDATE ProductPages
-        SET parse_status = NULL
-        WHERE parse_status = "parsing"
-        '''
-    )
-    db["conn"].commit()
-
 def parse_product_html_files(
-        db,
-        paths_dict,
-        specific_site_config,
-        counter_of_products,
+        db : Database,
+        paths_dict : dict,
+        specific_site_config ,
+        counter_of_products : int,
         logger,
         error_logger
 ):
@@ -110,7 +32,7 @@ def parse_product_html_files(
         html_archiving_folder = create_folder_with_date_of_parse_in_output_dir(paths_dict)
 
         # Get fetched search result product page
-        row_id, _, product_name, filename = get_fetched_product(db)
+        row_id, _, product_name, filename = db.get_fetched_product()
 
         if row_id is None:
 
@@ -123,9 +45,7 @@ def parse_product_html_files(
         if not file_path.exists():
 
             error_logger.error(f"Missing HTML for id {row_id}")
-            update_parse_status(row_id, db, status='parsing_failed')
-
-            db["conn"].commit()
+            db.update_parse_status(row_id, status='parsing_failed')
             
             continue
 
@@ -139,9 +59,7 @@ def parse_product_html_files(
 
         if not product:
 
-            update_parse_status(row_id, db, status='parsing_failed')
-
-            db["conn"].commit()
+            db.update_parse_status(row_id, status='parsing_failed')
 
             continue
 
@@ -151,11 +69,11 @@ def parse_product_html_files(
 
             date = now_with_hours()
 
-            update_product_data(db, row_id, product, date)
+            with db.transaction():
 
-            update_parse_status(row_id, db, status='parsed_succeeded')
+                db.update_product_data(row_id, product, date)
 
-            db["conn"].commit()
+                db.update_parse_status(row_id, status='parsed_succeeded')
 
             logger.info(f"Product {counter_of_products} parsed: {product_name}")
 
@@ -168,23 +86,16 @@ def parse_product_html_files(
             except Exception as error:
                 error_logger.error(f"Error in archiving HTML file: {error}")
 
-
         except Exception:
-
-            db['conn'].rollback()
 
             error_logger.error(f"DB update failed for id {row_id}", exc_info=True)
 
-            update_parse_status(row_id, db, status='parsing_failed')
-
-            db["conn"].commit()
-
-
-    
+            db.update_parse_status(row_id, status='parsing_failed')
+   
 ###################################################
 
 def run_crawler_product_html_parser(
-        db: dict,
+        db: Database,
         specific_site_config,
         paths_dict: dict, 
         logger: logging.Logger, 
@@ -193,7 +104,7 @@ def run_crawler_product_html_parser(
     ):
 
     # Reset stuck parsing jobs
-    reset_stuck_parsing_jobs(db)
+    db.reset_stuck_parsing_jobs()
 
     # Main logic
     parse_product_html_files(

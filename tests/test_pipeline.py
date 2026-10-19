@@ -1,4 +1,4 @@
-from main import run_pipeline, CrawlerContext
+from main import run_pipeline
 from unittest.mock import patch, Mock
 import pytest
 

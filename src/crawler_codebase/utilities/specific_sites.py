@@ -2,10 +2,14 @@ import re
 import time
 import random
 
-from abc import ABC, abstractmethod
 from playwright.sync_api import sync_playwright
 from utilities.stealth import stealth_context, human_scroll
 from utilities.utils import setup_loggers, slugify
+from utilities.site_contract import (
+    PRODUCT_URL_KEY, 
+    SiteCapability, 
+    WebsiteToScrape,
+)
 from typing import Optional, Tuple, Any
 from bs4.element import Tag
 from urllib.parse import urljoin
@@ -13,7 +17,7 @@ from urllib.parse import urljoin
 # Logging setup
 logger, error_logger = setup_loggers()
 
-def site_registry() -> dict:
+def site_registry() -> dict[str, WebsiteToScrape]:
     """
     Dictionary object containing the specific configuration classes for each site.
     """
@@ -34,32 +38,37 @@ def specific_site_setup(SITE_REGISTRY: dict, site_name: str) -> tuple:
     seed_url = specific_site_config.seed_urls[0]
     
     return specific_site_config, seed_url
-
-
-################################
-class WebsiteToScrape(ABC):
-
-    selector_to_start_process : str
-    
-    @abstractmethod
-    def product_extraction(self, soup: Tag) -> list[dict] | None:
-        pass
-    pass
-#################################
     
 class BooksToScrape(WebsiteToScrape):
+    """
+    BooksToScrape-specific configuration class.
+    Complete adapter: it serves every stage of the pipeline.
+    """
+
     SITE_NAME = "bookstoscrape"
     pagination_mode = "algorithmic"
+
+    CAPABILITIES = frozenset({
+        SiteCapability.ALGORITHMIC_PAGINATION,
+        SiteCapability.SEARCH_PAGE_READINESS,
+        SiteCapability.PRODUCT_URL_EXTRACTION,
+        SiteCapability.PRODUCT_PAGE_READINESS,
+        SiteCapability.PRODUCT_PAGE_PARSING,
+    })
 
     def __init__(self):
 
         # Seed URL
         self.seed_urls = ["https://books.toscrape.com/"]
         self.base_url = "https://books.toscrape.com/catalogue/"
-        
-        # Required selectors for scraping
+
+        # Contract: readiness selector of search results pages
         self.selector_to_start_process = "div.product_price"
+
+        # Contract: readiness selector of individual product pages
         self.wait_selector = "p.price_color"
+
+        # Required selectors for scraping
         self.product_pod_selector = ("article", "product_pod")
         self.price_selector = ("p", "price_color")
         self.currency_selector = ("span", "a-price-symbol")
@@ -73,11 +82,11 @@ class BooksToScrape(WebsiteToScrape):
     # ---------------------------
     # URL Construction
     # ---------------------------
-    def build_pagination_url(self, seed_url: str, i: int) -> str:
+    def build_pagination_url(self, seed_url: str, page_number: int) -> str:
         """
         Returns a properly formatted BooksToScrape pagination URL.
         """
-        paginated_url = f"{seed_url}catalogue/page-{i}.html"
+        paginated_url = f"{seed_url}catalogue/page-{page_number}.html"
 
         return paginated_url
     
@@ -117,7 +126,7 @@ class BooksToScrape(WebsiteToScrape):
                     link = urljoin(self.base_url, link) #type: ignore
 
             individual_product = {
-                "link" : link
+                PRODUCT_URL_KEY : link
             }
             products_of_page.append(individual_product)
 
@@ -190,12 +199,18 @@ class BooksToScrape(WebsiteToScrape):
 
 class Amazon(WebsiteToScrape):
     """
-    Amazon-specific configuration class.
-    Provides selectors, pagination rules, and fallback extraction.
+    Partial adapter: it can paginate search URLs and knows when a search results page is ready, so it serves the seed and the search scraper stages. 
+    It does not extract product URLs out of search results, has no readiness selector for individual product pages and cannot parse them, so it does not declare those capabilities. 
+    The stages depending on them are rejected before the run starts.
     """
     
     SITE_NAME = "Amazon"
     pagination_mode = "algorithmic"
+
+    CAPABILITIES = frozenset({
+        SiteCapability.ALGORITHMIC_PAGINATION,
+        SiteCapability.SEARCH_PAGE_READINESS,
+    })
 
     def __init__(self):
         
@@ -204,20 +219,23 @@ class Amazon(WebsiteToScrape):
             "https://www.amazon.com/s?k=laptop"
         ]
 
-        # Required selectors
+        # Contract: readiness selector of search results pages
         self.selector_to_start_process = "span.a-price-whole"
+
+        # Required selectors
         self.product_name_selector = ("h2", "a-size-medium a-spacing-none a-color-base a-text-normal")
         self.price_selector = ("span", "a-price-whole")
         self.currency_selector = ("span", "a-price-symbol")
+    
 
     # ---------------------------
     # URL Construction
     # ---------------------------
-    def build_pagination_url(self, seed_url: str, i: int) -> str:
+    def build_pagination_url(self, seed_url: str, page_number: int) -> str:
         """
         Returns a properly formatted Amazon pagination URL.
         """
-        paginated_url = f"{seed_url}&page={i}"
+        paginated_url = f"{seed_url}&page={page_number}"
 
         return paginated_url
     
@@ -228,7 +246,7 @@ class Amazon(WebsiteToScrape):
     #ARS Function
     def price_fallback_extraction_for_amz_ARS(self, container: Tag) -> Tuple[Optional[str], Optional[str]]:
 
-        price_pattern_ARS = r'ARS\s*([\d.,]+)'
+        price_pattern_ARS = r'ARS\s*([\d.,])'
 
         spans = container.find_all('span', class_='a-color-base')
 
@@ -247,7 +265,7 @@ class Amazon(WebsiteToScrape):
     #USD Function
     def price_fallback_extraction_for_amz_USD(self, container: Tag) -> Tuple[Optional[str], Optional[str]]:
 
-        price_pattern_USD = r'\$\s*([\d.,]+)'
+        price_pattern_USD = r'\$\s*([\d.,])'
 
         spans = container.find_all('span', class_='a-color-base')
 
@@ -317,10 +335,21 @@ class MercadoLibre(WebsiteToScrape):
     """
     Mercado Libre-specific configuration class.
     Provides selectors, pagination rules, and extraction parameters.
+
+    Complete adapter: it discovers its canonical pagination base on the live site (dynamic pagination) and then paginates algorithmically, and it serves both search results and individual product pages.
     """
 
     SITE_NAME = "MercadoLibre"
     pagination_mode = "dynamic"
+
+    CAPABILITIES = frozenset({
+        SiteCapability.ALGORITHMIC_PAGINATION,
+        SiteCapability.DYNAMIC_PAGINATION,
+        SiteCapability.SEARCH_PAGE_READINESS,
+        SiteCapability.PRODUCT_URL_EXTRACTION,
+        SiteCapability.PRODUCT_PAGE_READINESS,
+        SiteCapability.PRODUCT_PAGE_PARSING,
+    })
 
     def __init__(self):
 
@@ -329,9 +358,16 @@ class MercadoLibre(WebsiteToScrape):
             "https://listado.mercadolibre.com.ar/guitarra-usada"
         ]
 
-        # Selectors for checking JS has loaded in search results pages
+        # Contract: readiness selector of search results pages
         self.selector_to_start_process = "li.ui-search-layout__item"
         self.selector_siguiente_for_pagination = "li.ui-search-filter-container"
+        self.selector_to_start_process_in_individual_product_pages = "a.poly-component__title"
+        self.individual_product_name_selector = ("h1", "ui-pdp-title")
+
+        # Contract: readiness selector of individual product pages.
+        # Exposes the already existing product page readiness information
+        # under the name the pipeline consumes.
+        self.wait_selector = self.selector_to_start_process_in_individual_product_pages
 
         # Search Result fields
         self.product_container_selector = ("li", "ui-search-layout__item")
@@ -341,10 +377,6 @@ class MercadoLibre(WebsiteToScrape):
         self.search_results_page_product_image_selector_1 = ("img", "poly-component__image-overlay")
         self.search_results_page_product_image_selector_2 = ("img", "poly-component__picture lazy-loadable")
         self.product_link_selector = ("h3", "poly-component__title-wrapper")
-
-        # Individual product pages
-        self.selector_to_start_process_in_individual_product_pages = "a.poly-component__title"
-        self.individual_product_name_selector = ("h1", "ui-pdp-title")
 
     # ---------------------------
     # URL Construction
@@ -408,13 +440,13 @@ class MercadoLibre(WebsiteToScrape):
             finally:
                 browser.close()
 
-    def build_pagination_url(self, canonical_url: str, page_number: int) -> str:
+    def build_pagination_url(self, seed_url: str, page_number: int) -> str:
         "Algorithmic Mercado libre URL generator."
         try:
-            clean_canonical_url = canonical_url.split("_Desde_")[0]
+            clean_canonical_url = seed_url.split("_Desde_")[0]
         except Exception as e:
             print(f"Unable to clean provided seed URL for reason: {e}")
-            clean_canonical_url = canonical_url
+            clean_canonical_url = seed_url
         if page_number == 1:
             return clean_canonical_url
         ITEMS_PER_PAGE = 49
@@ -513,7 +545,7 @@ class MercadoLibre(WebsiteToScrape):
                 "product_id": product_id,
                 "currency": currency,
                 "price": raw_price,
-                "link" : link,
+                PRODUCT_URL_KEY : link,
                 "images": [
                 img
                 ]

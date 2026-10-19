@@ -1,18 +1,18 @@
 # test_vertical_slice.py
-
+import sqlite3
 import logging
 import pytest
 
-from utilities.database import db_initialization, db_cur_and_conn_closer, insert_url, update_url_status
-from utilities.utils import process_single_url, load_page, extract_html, perform_scroll, human_scroll, write_html, now_with_hours
+from utilities.database import Database
+from utilities.utils import process_single_url, now_with_hours
 from utilities.specific_sites import BooksToScrape
 
 from crawler.crawler_search_scraper import scrape_urls
-from crawler.crawler_search_html_parser import insert_product_url, crawler_search_html_parser
-from crawler.crawler_product_scraper import update_fetch_status_in_product_pages, scrape_product_urls
-from crawler.crawler_product_html_parser import run_crawler_product_html_parser, create_folder_with_date_of_parse_in_output_dir, update_parse_status, reset_stuck_parsing_jobs, get_fetched_product, parse_product_html_files
+from crawler.crawler_search_html_parser import crawler_search_html_parser
+from crawler.crawler_product_scraper import scrape_product_urls
+from crawler.crawler_product_html_parser import parse_product_html_files
 
-from unittest.mock import Mock, create_autospec, patch, call
+from unittest.mock import create_autospec, patch
 from pathlib import Path
 
 
@@ -63,15 +63,16 @@ class FakeSiteConfig:
 
 @pytest.fixture
 def tmp_db(tmp_path):
+        
     # 1. setup
     temp_db_path = tmp_path / "temp_db.sqlite"
-    db = db_initialization(temp_db_path)
+    db = Database(temp_db_path)
 
     # 2. hand the db to the test
     yield db
 
     # 3. cleanup after the test finishes
-    db_cur_and_conn_closer(db)
+    db.close()
 
 @pytest.fixture
 def tmp_paths_dict(tmp_path):
@@ -95,19 +96,12 @@ def test_vertical_slice_of_crawler_no_seed_phase(tmp_db, tmp_paths_dict):
     fake_website_config = FakeSiteConfig('dummy_wait_selector')
     fake_website_config.add_selector_to_start_process('dummy_start_selector')
 
-
+    conn, cur = None, None
+    
     # This (insert url and update url status) sets the db like Seed stage has to put it
-    insert_url(
-            TEST_URL,
-            tmp_db,
-            'X/X/X'
-    )
+    tmp_db.insert_url(TEST_URL, 'X/X/X')
 
-    update_url_status(
-        TEST_URL,
-        tmp_db,
-        status='pending'
-    )
+    tmp_db.update_url_status(TEST_URL, status='pending')
 
     fake_fetch_html = create_autospec(process_single_url)
 
@@ -137,88 +131,99 @@ def test_vertical_slice_of_crawler_no_seed_phase(tmp_db, tmp_paths_dict):
         # html has the right content
         assert html == """<article class="product_pod"><a href="catalogue/test-product/index.html"></a></article>"""
 
-    tmp_db['cur'].execute('SELECT url_name, status from Urls')
+    try:
 
-    urls_in_db = tmp_db['cur'].fetchone()
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
 
-    assert urls_in_db == ("www.product_1.com", "fetched")
+        cur.execute('SELECT url_name, status from Urls')
 
-    # Search parser
-    list_of_html_files : list[str] = ['page_1.html']
+        urls_in_db = cur.fetchone()
 
-    #fake_website_config_search_parser = FakeSiteConfig('dummy_wait_selector')
-    #fake_website_config_search_parser.add_products({"link": "www.product_1.com"})
+        assert urls_in_db == ("www.product_1.com", "fetched")
 
-    crawler_search_html_parser(
-        list_of_html_files,
-        tmp_paths_dict,
-        BooksToScrape(),
-        tmp_db,
-        logger,
-        error_logger
-    )
+        # Search parser
+        list_of_html_files : list[str] = ['page_1.html']
 
-    tmp_db['cur'].execute('SELECT product_url, fetch_status from ProductPages')
+        #fake_website_config_search_parser = FakeSiteConfig('dummy_wait_selector')
+        #fake_website_config_search_parser.add_products({"link": "www.product_1.com"})
 
-    search_info_in_db : (tuple[str | str] | None) = tmp_db['cur'].fetchone()
-
-    assert search_info_in_db == ("https://books.toscrape.com/catalogue/catalogue/test-product/index.html", 'pending')
-
-    # Product parser
-
-    fake_fetch_product_html = create_autospec(process_single_url)
-
-    FAKE_PRODUCT_HTML = """<h1>Product1</h1>"""
-
-    fake_fetch_product_html.return_value = FAKE_PRODUCT_HTML
-
-    with patch('crawler.crawler_product_scraper.countdown_sleep_timer'):
-        scrape_product_urls(
-            tmp_db, 
-            tmp_paths_dict, 
-            fake_page, 
-            BooksToScrape(), 
-            logger, 
-            error_logger, 
-            page_counter=1, 
-            fetch_html=fake_fetch_product_html
+        crawler_search_html_parser(
+            list_of_html_files,
+            tmp_paths_dict,
+            BooksToScrape(),
+            tmp_db,
+            logger,
+            error_logger
         )
 
-    file_path_product_parser = tmp_paths_dict['output_dir'] / 'product_1.html'
+        cur.execute('SELECT product_url, fetch_status from ProductPages')
 
-    assert file_path_product_parser.exists()
+        search_info_in_db : (tuple[str | str] | None) = cur.fetchone()
 
-    content = file_path_product_parser.read_text()
+        assert search_info_in_db == ("https://books.toscrape.com/catalogue/catalogue/test-product/index.html", 'pending')
 
-    assert content == """<h1>Product1</h1>"""
+        # Product parser
 
-    # Product scraper
-    counter_of_products = 1
-    
-    parse_product_html_files(
-        tmp_db,
-        tmp_paths_dict,
-        BooksToScrape(),
-        counter_of_products,
-        logger,
-        error_logger
-    )
+        fake_fetch_product_html = create_autospec(process_single_url)
 
-    tmp_db['cur'].execute("SELECT product_name, parse_status FROM ProductPages LIMIT 1")
+        FAKE_PRODUCT_HTML = """<h1>Product1</h1>"""
 
-    product_html_info = tmp_db['cur'].fetchone()
+        fake_fetch_product_html.return_value = FAKE_PRODUCT_HTML
 
-    assert product_html_info == ('product1', 'parsed_succeeded')
+        with patch('crawler.crawler_product_scraper.countdown_sleep_timer'):
+            scrape_product_urls(
+                tmp_db, 
+                tmp_paths_dict, 
+                fake_page, 
+                BooksToScrape(), 
+                logger, 
+                error_logger, 
+                page_counter=1, 
+                fetch_html=fake_fetch_product_html
+            )
 
-    # i have yet to assert that the archiving part works
-    date_for_archiving = now_with_hours()[0:10]
-    file_path_of_archiving : Path = tmp_paths_dict['output_dir'] / f'parse_{date_for_archiving}'
+        file_path_product_parser = tmp_paths_dict['output_dir'] / 'product_1.html'
 
-    # assert that the archiving path folder
-    assert file_path_of_archiving.exists()
-    # assert that the html is there
-    file_path_of_archived_file = file_path_of_archiving / 'product_1.html'
-    assert file_path_of_archived_file.exists()
-    # assert that the html there has the right content
-    content_of_archived_file =  file_path_of_archived_file.read_text()
-    assert content_of_archived_file == """<h1>Product1</h1>"""
+        assert file_path_product_parser.exists()
+
+        content = file_path_product_parser.read_text()
+
+        assert content == """<h1>Product1</h1>"""
+
+        # Product scraper
+        counter_of_products = 1
+        
+        parse_product_html_files(
+            tmp_db,
+            tmp_paths_dict,
+            BooksToScrape(),
+            counter_of_products,
+            logger,
+            error_logger
+        )
+
+        cur.execute("SELECT product_name, parse_status FROM ProductPages LIMIT 1")
+
+        product_html_info = cur.fetchone()
+
+        assert product_html_info == ('product1', 'parsed_succeeded')
+
+        # i have yet to assert that the archiving part works
+        date_for_archiving = now_with_hours()[0:10]
+        file_path_of_archiving : Path = tmp_paths_dict['output_dir'] / f'parse_{date_for_archiving}'
+
+        # assert that the archiving path folder
+        assert file_path_of_archiving.exists()
+        # assert that the html is there
+        file_path_of_archived_file = file_path_of_archiving / 'product_1.html'
+        assert file_path_of_archived_file.exists()
+        # assert that the html there has the right content
+        content_of_archived_file =  file_path_of_archived_file.read_text()
+        assert content_of_archived_file == """<h1>Product1</h1>"""
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
