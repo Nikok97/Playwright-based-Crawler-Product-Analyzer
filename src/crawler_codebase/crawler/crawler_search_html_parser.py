@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 from logging import Logger
 
-from utilities.specific_sites import WebsiteToScrape
+from utilities.site_contract import WebsiteToScrape
 from utilities.database import Database
 
 def list_of_html_files_compiler(directory: Path) -> list | None:

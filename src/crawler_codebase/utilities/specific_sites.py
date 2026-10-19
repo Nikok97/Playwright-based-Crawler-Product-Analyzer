@@ -72,6 +72,7 @@ class BooksToScrape(WebsiteToScrape):
         self.product_pod_selector = ("article", "product_pod")
         self.price_selector = ("p", "price_color")
         self.currency_selector = ("span", "a-price-symbol")
+        self.product_link_selector = "a"
         
         # Required selectors for individual product pages
         self.individual_product_name_selector = "h1"
@@ -516,7 +517,7 @@ class MercadoLibre(WebsiteToScrape):
             # Extract item_id from image_link
             m = None
             if img is not None:
-                m = re.search(r'MLA(\d)', img)
+                m = re.search(r'MLA(\d+)', img)
             if m:
                 product_id = f"MLA{m.group(1)}"
 
@@ -602,7 +603,7 @@ class MercadoLibre(WebsiteToScrape):
         # Extract item_id from image_link
         m: Any | None = None
         if img is not None:
-            m = re.search(r'MLA(\d)', img)
+            m = re.search(r'MLA(\d+)', img)
         if m:
             product_code = f"MLA{m.group(1)}"
 

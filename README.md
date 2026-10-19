@@ -4,7 +4,7 @@ A synchronous, stage-based web crawler built with **Python, Playwright, Beautifu
 
 The project separates web fetching from HTML parsing and persists crawl state in SQLite, allowing interrupted work to be recovered and later stages to be run independently.
 
-The current end-to-end reference implementation targets **BooksToScrape**. The codebase also contains partial/experimental adapters for **Amazon** and **MercadoLibre**.
+The current end-to-end reference implementation targets **BooksToScrape**. The codebase also contains a partial **Amazon** adapter and an experimental **MercadoLibre** adapter that declares support for the full crawler pipeline.
 
 ---
 
@@ -48,6 +48,7 @@ The stages share a `CrawlerContext` containing the database connection, director
 - Atomic HTML writes using temporary files
 - Product HTML archiving after successful parsing
 - Site-specific adapters separated from the generic pipeline
+- Capability-based adapter contracts with construction-time validation and stage compatibility checks
 - Normal and error logging
 - Automated pytest coverage for pipeline, scraper, parser, database, and recovery behavior
 
@@ -75,9 +76,9 @@ The Amazon adapter is currently **partial** and is not wired for the complete fi
 
 ### MercadoLibre
 
-The repository contains MercadoLibre search-page pagination and parsing logic, together with individual-product extraction code.
+The MercadoLibre adapter declares support for the full crawler pipeline, including dynamic pagination discovery, search-result parsing, product-page scraping, and individual-product parsing.
 
-The MercadoLibre adapter is currently **experimental/partial** and is not the reference implementation for the full pipeline.
+It is still **experimental against the live site** and is not the reference implementation for the full pipeline.
 
 ---
 
@@ -105,17 +106,15 @@ The MercadoLibre adapter is currently **experimental/partial** and is not the re
 │       └── utilities/
 │           ├── __init__.py
 │           ├── database.py
+│           ├── site_contract.py
 │           ├── specific_sites.py
 │           ├── stealth.py
 │           └── utils.py
 ├── tests/
-│   └── test_pipeline.py
-└── dynamic_crawler_tests/
-    ├── test_product_html_parser.py
-    ├── test_product_scraper.py
-    ├── test_product_seed.py
-    ├── test_search_scraper.py
-    └── beginner_tests/
+│   ├── test_pipeline.py
+│   ├── test_site_contract.py
+│   ├── test_vertical_slice.py
+│   └── ...
 ```
 
 Runtime directories such as `data/` and `data/output/` are created automatically.
@@ -408,6 +407,8 @@ Adapters can define behavior including:
 - search-result product extraction;
 - individual-product data extraction.
 
+Adapters declare supported functionality through `SiteCapability` values defined in `site_contract.py`. Adapter declarations are validated against their implementation when instances are constructed, and pipeline stages declare the capabilities they require before execution. This allows partial adapters, such as Amazon, to participate only in the stages they support.
+
 The intent is to keep site-specific HTML knowledge outside the generic crawler stages.
 
 ---
@@ -447,11 +448,7 @@ The current `config.json` is:
 
 Selects an adapter registered in `site_registry()`.
 
-For the complete current pipeline, use:
-
-```text
-bookstoscrape
-```
+`bookstoscrape` remains the reference configuration for the complete pipeline.
 
 ### `database_path`
 
@@ -607,6 +604,8 @@ The current test suite covers areas including:
 - SQLite updates and transactions;
 - rollback behavior;
 - file handling and archiving;
+- site-adapter capability declarations and contract validation;
+- stage compatibility with partial adapters;
 - parsing helpers and utilities.
 
 The codebase is intentionally structured so that much of the crawler behavior can be tested with local HTML, temporary SQLite databases, and mocked browser interactions rather than requiring live network requests.

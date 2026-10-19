@@ -124,6 +124,7 @@ class WebsiteToScrape(ABC):
         # cls.__dict__ is a dictionary containing the attributes defined directly on that class. Here I am getting only the __init__ of the class.
         own_init = cls.__dict__.get("__init__")
 
+        # Current automatic validation assumes concrete adapters define __init__.
         if own_init is None or getattr(own_init, "_validates_site_contract", False):
             return
 
@@ -249,7 +250,7 @@ class WebsiteToScrape(ABC):
     # adapter does not declare capability
     # -> inherited failing implementation is acceptable
     
-    def build_pagination_url(self, base_url: str, page_number: int) -> str:
+    def build_pagination_url(self, seed_url: str, page_number: int) -> str:
         """
         Returns the URL of the given search results page.
         Requires ALGORITHMIC_PAGINATION.

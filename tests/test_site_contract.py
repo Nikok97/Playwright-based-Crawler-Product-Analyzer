@@ -682,7 +682,7 @@ def test_product_parser_stage_stores_parsed_products(
             "UPDATE ProductPages SET fetch_status = ?, filename = ? WHERE id = ?",
             ('fetched', 'product_1.html', 1)
         )
-        tmp_db['conn'].commit()
+        conn.commit()
 
         run_crawler_product_html_parser(
             tmp_db,
