@@ -29,7 +29,9 @@ class Database:
                     url_name TEXT UNIQUE,
                     date TEXT,
                     filename TEXT UNIQUE,
-                    status TEXT
+                    status TEXT,
+                    parse_status TEXT,
+                    content_hash TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS ProductPages (

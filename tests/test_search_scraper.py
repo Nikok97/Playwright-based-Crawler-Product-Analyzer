@@ -4,13 +4,11 @@ import sqlite3
 
 from pathlib import Path
 from bs4 import BeautifulSoup
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, create_autospec
 from playwright.sync_api import Page
 
-#from utilities.database import db_initialization, db_cur_and_conn_closer, insert_url, update_url_status
 from utilities.database import Database
-from utilities.utils import process_single_url, load_page, extract_html, perform_scroll, human_scroll
-from crawler.crawler_search_scraper import run_crawler_search_scraper, scrape_urls
+from crawler.crawler_search_scraper import scrape_urls, write_html_to_disk, write_html, process_single_url
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger("test_logger")
@@ -570,8 +568,100 @@ def test_scrape_urls_one_failure_one_success(
         if conn:
             conn.close()
 
+def test_failed_write_html_does_not_produce_fetched_url_state(tmp_db, tmp_data_dir, url_for_testing):
+
+    html_for_testing = 'test_content'
+    tmp_db.insert_url(url_for_testing, 'x/x/x')
+    tmp_db.update_url_status(url_for_testing, 'pending')
+    tmp_db.get_pending_url_and_update()
+
+    #1. Una escritura fallida no produce el estado `fetched`.
+    with patch("crawler.crawler_search_scraper.write_html") as mock_write_html:
+
+        mock_write_html.return_value = False
+    
+        write_html_to_disk(1, tmp_data_dir, url_for_testing, html_for_testing, tmp_db)
 
     
+    conn, cur = [None] * 2
+    try:
+
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
+
+        cur.execute("SELECT url_name, status FROM Urls WHERE url_name=?", (url_for_testing,))
+        row = cur.fetchone()
+
+        assert row == ('www.mdp.com', 'failed')
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+    
+def test_fetch_html_fails_and_crawler_continues_with_next_url(tmp_db, tmp_data_dir, url_for_testing):
+
+    fake_config = FakeSiteConfig(
+        products=[{"test": "test"}],selector_to_start_process="p.price_color")
+
+    # una prueba que simule una excepción de fetch_html() y verifique que se continúa con la siguiente URL.
+    tmp_db.insert_url(url_for_testing, 'x/x/x')
+    tmp_db.insert_url('www.mdp_2.com', 'x/x/x')
+
+    tmp_db.update_url_status(url_for_testing, 'pending')
+    tmp_db.update_url_status('www.mdp_2.com', 'pending')
+
+    mock_fetch_html : Mock = create_autospec(process_single_url)
+
+    mock_fetch_html.side_effect = [Exception(), 'successful_html']
+
+    scrape_urls(
+        tmp_db,
+        tmp_data_dir,
+        fake_page,
+        fake_config,
+        logger,
+        error_logger,
+        fetch_html=mock_fetch_html,
+    )
+
+    conn, cur = [None] * 2
+    try:
+
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
+
+        cur.execute("SELECT url_name, status FROM Urls WHERE url_name=?", (url_for_testing,))
+        row = cur.fetchone()
+
+        assert row == ('www.mdp.com', 'failed')
+
+        cur.execute("SELECT url_name, status FROM Urls WHERE url_name=?", ('www.mdp_2.com',))
+        row = cur.fetchone()
+
+        assert row == ('www.mdp_2.com', 'fetched')
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

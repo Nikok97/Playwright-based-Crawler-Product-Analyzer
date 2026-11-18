@@ -2,6 +2,8 @@ import logging
 import pytest
 import sqlite3
 
+from unittest.mock import patch, Mock
+
 from utilities.database import Database
 
 from crawler.crawler_search_html_parser import crawler_search_html_parser
@@ -132,4 +134,60 @@ def test_two_urls_insertions_from_scraped_html_file(temp_data_dir, tmp_db):
             conn.close()
 
 
+def test_products_of_page_is_empty_and_no_insertions_are_made(temp_data_dir, tmp_db):
+
+    class FakeSiteConfigForThisTest:
+        def __init__(self, products : list[dict[str, str]]) -> None:
+            self.products = products
+        def product_extraction(self, soup):
+            return None
+
+    # product_extraction() returns None and no insertions are made nor any error is produced
+    product_html = """
+    <article>
+    <mock so the test has a valid file
+    </article>
+    """
+
+    file_path = temp_data_dir['data_dir'] / 'page_1.html'
+    
+    with open(file_path, 'w', encoding='utf-8') as file:
+        file.write(product_html)
+        
+    list_of_html_files = [file_path]
+
+    fake_config = FakeSiteConfigForThisTest([])
+
+    with patch.object(error_logger, "error") as mock_error, patch.object(fake_config, 'product_extraction', return_value=None) as mock_product_extraction:
+        crawler_search_html_parser(
+            list_of_html_files,
+            temp_data_dir,
+            fake_config,
+            tmp_db,
+            logger,
+            error_logger
+        )
+
+    mock_error.assert_not_called()
+    mock_product_extraction.assert_called_once()
+
+    conn, cur = None, None
+
+    try:
+
+        conn = sqlite3.connect(tmp_db.path)
+        cur = conn.cursor()
+
+        cur.execute('SELECT product_url, fetch_status from ProductPages')
+
+        urls_in_db = cur.fetchall()
+
+        assert urls_in_db == []
+
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+    
 

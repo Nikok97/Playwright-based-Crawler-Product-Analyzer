@@ -83,6 +83,9 @@ def crawler_search_html_parser(
                 #3. Extract product data from search results into a list of dict objects
                 products_of_page = specific_site_config.product_extraction(soup)
 
+                if products_of_page is None:
+                    products_of_page = []
+
                 # DB Product insertion
                 total_number_of_products_in_page = len(products_of_page)
 

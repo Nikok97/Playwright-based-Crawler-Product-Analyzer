@@ -14,11 +14,15 @@ def write_html_to_disk(url_id: int | None, paths_dict: dict[str, Path], url: str
 
     #Write HTML to disk
     filename = f"page_{url_id}.html"
-    write_html(paths_dict['data_dir'], filename, html)
 
-    with db.transaction():
-        db.update_filename_for_url(url, filename)
-        db.update_url_status(url, status='fetched')
+    html_written_to_disk = write_html(paths_dict['data_dir'], filename, html)
+
+    if not html_written_to_disk:
+        db.update_url_status(url, status='failed')
+    else:
+        with db.transaction():
+            db.update_filename_for_url(url, filename)
+            db.update_url_status(url, status='fetched')
 
 def simulate_natural_browsing_with_occasional_pause(page_counter: int):
 
@@ -75,13 +79,25 @@ def scrape_urls(
             #Occasional long pause to simulate browsing
             simulate_natural_browsing_with_occasional_pause(page_counter)
 
-            #Process a single URL
-            html = fetch_html(
-                page, 
-                url, 
-                logger,
-                specific_site_config.selector_to_start_process
-            )
+            html = None
+
+            try:
+
+                #Process a single URL
+                html = fetch_html(
+                    page, 
+                    url, 
+                    logger,
+                    specific_site_config.selector_to_start_process
+                )
+
+            except Exception as e:
+
+                db.update_url_status(url, status='failed')
+
+                error_logger.error(f"HTML fetching failed {url} for reason: {e}", exc_info=True)
+
+                continue
             
             if not html:
 
